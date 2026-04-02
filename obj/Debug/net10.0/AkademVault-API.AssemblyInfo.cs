@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AkademVault-API")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+dde718d34be502e1b6bd477d20bdf6eb67e492b3")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+eed6d281cb8d3b4de1b48630c5c9f5585bb455e6")]
 [assembly: System.Reflection.AssemblyProductAttribute("AkademVault-API")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AkademVault-API")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

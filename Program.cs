@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
-using DotNetEnv; // Не забудь додати цей пакет
+using DotNetEnv;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. ЗАВАНТАЖЕННЯ КОНФІГУРАЦІЇ З .ENV
+
 DotNetEnv.Env.Load();
 
 var dbHost = Environment.GetEnvironmentVariable("DB_HOST");
@@ -15,10 +15,10 @@ var dbUser = Environment.GetEnvironmentVariable("DB_USER");
 var dbPass = Environment.GetEnvironmentVariable("DB_PASSWORD");
 var dbSsl  = Environment.GetEnvironmentVariable("DB_SSLMODE") ?? "require";
 
-// Формуємо рядок підключення для Neon
+
 var connectionString = $"Host={dbHost};Port={dbPort};Database={dbName};Username={dbUser};Password={dbPass};SSL Mode={dbSsl};Trust Server Certificate=true;";
 
-// Тимчасовий дебаг (видали після перевірки)
+
 if (string.IsNullOrEmpty(dbHost)) 
 {
     Console.WriteLine("❌ ПОМИЛКА: Не вдалося прочитати DB_HOST з .env!");
@@ -28,11 +28,11 @@ else
     Console.WriteLine($"✅ Підключення до бази на хості: {dbHost}");
 }
 
-// 2. ПІДКЛЮЧЕННЯ ДО БД
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
-// 3. НАЛАШТУВАННЯ CORS
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AngularPolicy", policy =>
@@ -44,7 +44,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// 4. АУТЕНТИФІКАЦІЯ (COOKIES)
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
@@ -66,7 +66,7 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// 5. ПАЙПЛАЙН ОБРОБКИ ЗАПИТІВ
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

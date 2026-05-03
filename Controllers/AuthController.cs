@@ -5,7 +5,7 @@ using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.DTOs;
-using AkademVault_API.Models; // Додай цей using для класу User
+using AkademVault_API.Models; 
 
 [ApiController]
 [Route("api/[controller]")]
@@ -26,7 +26,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { message = "Користувач з таким Email вже існує" });
         }
 
-        // Хешуємо пароль перед збереженням
+       
         string passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
 
         var user = new User
@@ -49,7 +49,7 @@ public class AuthController : ControllerBase
     {
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
 
-        // ВАЖЛИВО: Використовуємо BCrypt.Verify для порівняння чистого пароля з хешем
+        
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash)) 
         {
             return Unauthorized(new { message = "Невірний email або пароль" });

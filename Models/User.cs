@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations.Schema;
 namespace AkademVault_API.Models;
 
 public class User
@@ -7,4 +8,9 @@ public class User
     public string PasswordHash { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+    public Guid? GroupId { get; set; }
+
+    [ForeignKey("GroupId")]
+    public Group? Group { get; set; }
 }

@@ -24,19 +24,19 @@ public class RequestController : ControllerBase
 
         
         var user = await _context.Users.FindAsync(userId);
-        if (user?.GroupId != null) return BadRequest("Ви вже в групі");
+        if (user?.GroupId != null) return BadRequest(new { message = "Ви вже в групі" });
 
      
         var existingRequest = await _context.JoinRequests
             .AnyAsync(r => r.GroupId == groupId && r.UserId == userId && r.Status == RequestStatus.Pending);
         
-        if (existingRequest) return BadRequest("Заявка вже надіслана");
+        if (existingRequest) return BadRequest(new { message = "Заявка вже надіслана" });
 
         var request = new JoinRequest { Id = Guid.NewGuid(), GroupId = groupId, UserId = userId };
         _context.JoinRequests.Add(request);
         await _context.SaveChangesAsync();
 
-        return Ok("Заявку надіслано власнику групи");
+        return Ok(new { message = "Заявку надіслано власнику групи" });
     }
 
    
@@ -61,7 +61,7 @@ public class RequestController : ControllerBase
         var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var request = await _context.JoinRequests.Include(r => r.Group).FirstOrDefaultAsync(r => r.Id == requestId);
 
-        if (request == null || request.Group!.OwnerId != ownerId) return Forbid();
+        if (request == null || request.Group!.OwnerId != ownerId) return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста цієї групи може виконати дію." });
 
         request.Status = RequestStatus.Approved;
       
@@ -69,7 +69,7 @@ public class RequestController : ControllerBase
         if (targetUser != null) targetUser.GroupId = request.GroupId;
 
         await _context.SaveChangesAsync();
-        return Ok("Користувача додано до групи");
+        return Ok(new { message = "Користувача додано до групи" });
     }
    
 [HttpPost("reject/{requestId}")]
@@ -83,11 +83,11 @@ public async Task<IActionResult> Reject(Guid requestId)
         .FirstOrDefaultAsync(r => r.Id == requestId);
 
     if (request == null || request.Group!.OwnerId != ownerId) 
-        return Forbid(); 
+        return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста цієї групи може виконати дію." }); 
 
     request.Status = RequestStatus.Rejected;
     await _context.SaveChangesAsync();
 
-    return Ok("Заявку відхилено");
+    return Ok(new { message = "Заявку відхилено" });
 }
 }

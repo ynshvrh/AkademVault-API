@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
+using AkademVault_API.Models;
 using AkademVault_API.Services;
 using System.Security.Claims;
 using System.Text;
@@ -15,6 +16,7 @@ public class DigestController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IDigestAIClient _ai;
+    private readonly INotificationService _notifications;
 
     private const string SystemPrompt =
         "Ти асистент академічної групи. Тобі дають журнал подій за певний період " +
@@ -22,10 +24,11 @@ public class DigestController : ControllerBase
         "3-6 пунктів, без води, без вступів і висновків, тільки факти що сталися. " +
         "Якщо подій немає — так і скажи одним реченням.";
 
-    public DigestController(AppDbContext context, IDigestAIClient ai)
+    public DigestController(AppDbContext context, IDigestAIClient ai, INotificationService notifications)
     {
         _context = context;
         _ai = ai;
+        _notifications = notifications;
     }
 
 
@@ -40,13 +43,13 @@ public class DigestController : ControllerBase
         };
 
         if (window == TimeSpan.Zero)
-            return BadRequest("Параметр period має бути 'hour' або 'day'.");
+            return BadRequest(new { message = "Параметр period має бути 'hour' або 'day'." });
 
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var group = await _context.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.OwnerId == userId, ct);
 
         if (group == null)
-            return Forbid("Тільки староста може запускати дайджест.");
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може запускати дайджест." });
 
         var since = DateTime.UtcNow - window;
 
@@ -109,6 +112,23 @@ public class DigestController : ControllerBase
             prompt.AppendLine($"[{m.SentAt:HH:mm}] {m.Sender}: {m.Content}");
 
         var summary = await _ai.SummarizeAsync(SystemPrompt, prompt.ToString(), ct);
+
+
+        var recipients = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.GroupId == group.Id && u.Id != userId)
+            .Select(u => u.Id)
+            .ToListAsync(ct);
+
+        if (recipients.Count > 0)
+        {
+            await _notifications.NotifyManyAsync(
+                recipients,
+                NotificationType.DigestPublished,
+                $"Новий дайджест від {(period == "hour" ? "години" : "доби")}",
+                $"Староста згенерував підсумок активності групи.",
+                ct: ct);
+        }
 
         return Ok(new
         {

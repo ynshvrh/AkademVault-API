@@ -14,6 +14,10 @@ public class AppDbContext : DbContext
     public DbSet<ChatMessage> ChatMessages { get; set; }
     public DbSet<LectureMaterial> LectureMaterials { get; set; }
     public DbSet<MaterialComment> MaterialComments { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Invitation> Invitations { get; set; }
+    public DbSet<GroupInviteLink> GroupInviteLinks { get; set; }
+    public DbSet<ScheduleEntry> ScheduleEntries { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +36,11 @@ public class AppDbContext : DbContext
             .WithMany()
             .HasForeignKey(g => g.OwnerId)
             .OnDelete(DeleteBehavior.Restrict);
+
+
+        modelBuilder.Entity<Group>()
+            .HasIndex(g => g.ShortCode)
+            .IsUnique();
 
 
         modelBuilder.Entity<Assignment>()
@@ -96,5 +105,64 @@ public class AppDbContext : DbContext
             .WithMany(c => c.Replies)
             .HasForeignKey(c => c.ParentCommentId)
             .OnDelete(DeleteBehavior.Restrict);
+
+
+        modelBuilder.Entity<Notification>()
+            .HasOne(n => n.User)
+            .WithMany()
+            .HasForeignKey(n => n.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        modelBuilder.Entity<Notification>()
+            .HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+
+
+        modelBuilder.Entity<Invitation>()
+            .HasOne(i => i.Group)
+            .WithMany()
+            .HasForeignKey(i => i.GroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        modelBuilder.Entity<Invitation>()
+            .HasOne(i => i.InvitedUser)
+            .WithMany()
+            .HasForeignKey(i => i.InvitedUserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        modelBuilder.Entity<Invitation>()
+            .HasOne(i => i.InvitedBy)
+            .WithMany()
+            .HasForeignKey(i => i.InvitedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+
+        modelBuilder.Entity<Invitation>()
+            .HasIndex(i => new { i.InvitedUserId, i.Status });
+
+
+        modelBuilder.Entity<GroupInviteLink>()
+            .HasOne(l => l.Group)
+            .WithMany()
+            .HasForeignKey(l => l.GroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        modelBuilder.Entity<GroupInviteLink>()
+            .HasIndex(l => l.Token)
+            .IsUnique();
+
+
+        modelBuilder.Entity<ScheduleEntry>()
+            .HasOne(s => s.Group)
+            .WithMany()
+            .HasForeignKey(s => s.GroupId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+
+        modelBuilder.Entity<ScheduleEntry>()
+            .HasIndex(s => new { s.GroupId, s.DayOfWeek, s.StartTime });
     }
 }

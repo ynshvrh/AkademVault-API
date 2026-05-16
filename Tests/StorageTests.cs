@@ -70,7 +70,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -95,7 +95,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -121,7 +121,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -148,7 +148,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -187,7 +187,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var groupId = Guid.NewGuid();
         var uploaderId = Guid.NewGuid();
         var strangerId = Guid.NewGuid();
@@ -210,7 +210,7 @@ public class StorageTests
         var result = await controller.DeleteMaterial(material.Id);
 
 
-        result.Should().BeOfType<ForbidResult>();
+        var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
         storage.Deleted.Should().BeEmpty();
         context.LectureMaterials.Should().HaveCount(1);
     }
@@ -221,7 +221,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var groupId = Guid.NewGuid();
         var uploaderId = Guid.NewGuid();
 
@@ -254,7 +254,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
         var materialId = Guid.NewGuid();
@@ -294,7 +294,7 @@ public class StorageTests
 
         var context = GetDbContext();
         var storage = new FakeR2StorageService();
-        var controller = new StorageController(context, storage);
+        var controller = new StorageController(context, storage, new FakeNotificationService());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
         var materialId = Guid.NewGuid();

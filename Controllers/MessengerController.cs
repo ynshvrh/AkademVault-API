@@ -26,7 +26,7 @@ public class MessengerController : ControllerBase
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var messages = await _context.ChatMessages
             .AsNoTracking()
@@ -52,15 +52,15 @@ public class MessengerController : ControllerBase
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var message = await _context.ChatMessages.Include(m => m.Group).FirstOrDefaultAsync(m => m.Id == id);
 
-        if (message == null) return NotFound();
+        if (message == null) return NotFound(new { message = "Повідомлення не знайдено." });
 
 
         if (message.SenderId != userId && message.Group?.OwnerId != userId)
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Видалити може тільки автор або староста групи." });
 
         _context.ChatMessages.Remove(message);
         await _context.SaveChangesAsync();
-        return Ok("Повідомлення видалено");
+        return Ok(new { message = "Повідомлення видалено" });
     }
 }
 

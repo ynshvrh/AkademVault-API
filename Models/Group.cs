@@ -11,6 +11,11 @@ public class Group
     [StringLength(50)]
     public string Name { get; set; } = string.Empty;
 
+
+    [Required]
+    [StringLength(16)]
+    public string ShortCode { get; set; } = string.Empty;
+
     [Required]
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

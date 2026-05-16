@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace AkademVault_API.Services;
 
-public class OpenRouterClient : IDigestAIClient
+public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
 {
     private readonly HttpClient _http;
     private readonly string _model;
@@ -22,17 +22,58 @@ public class OpenRouterClient : IDigestAIClient
 
     public async Task<string> SummarizeAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
-        var payload = new ChatRequest
+        var payload = new
         {
-            Model = _model,
-            MaxTokens = 1024,
-            Messages = new[]
+            model = _model,
+            max_tokens = 1024,
+            messages = new object[]
             {
-                new ChatMessage { Role = "system", Content = systemPrompt },
-                new ChatMessage { Role = "user", Content = userPrompt }
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userPrompt }
             }
         };
 
+        return await PostAndExtractAsync(payload, ct);
+    }
+
+    public async Task<string> CallAsync(string systemPrompt, string userPrompt, IEnumerable<MultimodalAttachment> attachments, CancellationToken ct = default)
+    {
+        var userContent = new List<object> { new { type = "text", text = userPrompt } };
+
+        foreach (var att in attachments)
+        {
+            var dataUri = $"data:{att.MimeType};base64,{Convert.ToBase64String(att.Data)}";
+
+            if (att.MimeType.StartsWith("image/", StringComparison.OrdinalIgnoreCase))
+            {
+                userContent.Add(new { type = "image_url", image_url = new { url = dataUri } });
+            }
+            else if (att.MimeType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+            {
+                userContent.Add(new { type = "file", file = new { filename = "document.pdf", file_data = dataUri } });
+            }
+            else
+            {
+                throw new InvalidOperationException($"Непідтримуваний тип для multimodal: {att.MimeType}");
+            }
+        }
+
+        var payload = new
+        {
+            model = _model,
+            max_tokens = 2048,
+            messages = new object[]
+            {
+                new { role = "system", content = systemPrompt },
+                new { role = "user", content = userContent.ToArray() }
+            }
+        };
+
+        return await PostAndExtractAsync(payload, ct);
+    }
+
+    private async Task<string> PostAndExtractAsync(object payload, CancellationToken ct)
+    {
         var response = await _http.PostAsJsonAsync("chat/completions", payload, ct);
         var raw = await response.Content.ReadAsStringAsync(ct);
 
@@ -52,19 +93,6 @@ public class OpenRouterClient : IDigestAIClient
     }
 
 
-    private class ChatRequest
-    {
-        [JsonPropertyName("model")] public string Model { get; set; } = string.Empty;
-        [JsonPropertyName("max_tokens")] public int MaxTokens { get; set; }
-        [JsonPropertyName("messages")] public ChatMessage[] Messages { get; set; } = Array.Empty<ChatMessage>();
-    }
-
-    private class ChatMessage
-    {
-        [JsonPropertyName("role")] public string Role { get; set; } = string.Empty;
-        [JsonPropertyName("content")] public string Content { get; set; } = string.Empty;
-    }
-
     private class ChatResponse
     {
         [JsonPropertyName("choices")] public Choice[]? Choices { get; set; }
@@ -73,5 +101,10 @@ public class OpenRouterClient : IDigestAIClient
     private class Choice
     {
         [JsonPropertyName("message")] public ChatMessage? Message { get; set; }
+    }
+
+    private class ChatMessage
+    {
+        [JsonPropertyName("content")] public string? Content { get; set; }
     }
 }

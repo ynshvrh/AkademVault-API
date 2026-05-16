@@ -173,7 +173,7 @@ public class MessengerTests
         var result = await controller.DeleteMessage(message.Id);
 
 
-        result.Should().BeOfType<ForbidResult>();
+        var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
     [Fact]

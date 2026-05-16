@@ -3,11 +3,23 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.Models;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using System.Security.Claims;
 
 namespace Tests;
+
+public class FakeAntiforgery : IAntiforgery
+{
+    public AntiforgeryTokenSet GetAndStoreTokens(HttpContext httpContext)
+        => new AntiforgeryTokenSet("req", "cookie", "X-XSRF-TOKEN", "XSRF-TOKEN");
+    public AntiforgeryTokenSet GetTokens(HttpContext httpContext)
+        => new AntiforgeryTokenSet("req", "cookie", "X-XSRF-TOKEN", "XSRF-TOKEN");
+    public Task<bool> IsRequestValidAsync(HttpContext httpContext) => Task.FromResult(true);
+    public Task ValidateRequestAsync(HttpContext httpContext) => Task.CompletedTask;
+    public void SetCookieTokenAndHeader(HttpContext httpContext) { }
+}
 
 public class AuthMeTests
 {
@@ -33,7 +45,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context);
+        var controller = new AuthController(context, new FakeAntiforgery());
         var userId = Guid.NewGuid();
 
         SetUser(controller, userId);
@@ -50,7 +62,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context);
+        var controller = new AuthController(context, new FakeAntiforgery());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -76,7 +88,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context);
+        var controller = new AuthController(context, new FakeAntiforgery());
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 

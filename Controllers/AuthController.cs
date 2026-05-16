@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
@@ -13,10 +14,24 @@ using AkademVault_API.Models;
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IAntiforgery _antiforgery;
 
-    public AuthController(AppDbContext context)
+    public AuthController(AppDbContext context, IAntiforgery antiforgery)
     {
         _context = context;
+        _antiforgery = antiforgery;
+    }
+
+    private void IssueAntiforgeryCookies(ClaimsPrincipal principal)
+    {
+        HttpContext.User = principal;
+        var tokens = _antiforgery.GetAndStoreTokens(HttpContext);
+        Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
+        {
+            HttpOnly = false,
+            SameSite = SameSiteMode.Lax,
+            Secure = Request.IsHttps
+        });
     }
 
     [IgnoreAntiforgeryToken]
@@ -67,9 +82,12 @@ public class AuthController : ControllerBase
 
         var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
 
+        var principal = new ClaimsPrincipal(claimsIdentity);
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            new ClaimsPrincipal(claimsIdentity));
+            principal);
+
+        IssueAntiforgeryCookies(principal);
 
         return Ok(new { username = user.Username, email = user.Email });
     }
@@ -79,6 +97,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        IssueAntiforgeryCookies(new ClaimsPrincipal(new ClaimsIdentity()));
         return Ok(new { message = "Вихід успішний" });
     }
 

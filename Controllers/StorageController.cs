@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.Models;
 using AkademVault_API.Services;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
@@ -15,6 +16,7 @@ public class StorageController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly IR2StorageService _storage;
+    private readonly INotificationService _notifications;
 
     private static readonly long MaxFileSize = 25 * 1024 * 1024;
 
@@ -25,10 +27,11 @@ public class StorageController : ControllerBase
         [".webp"] = "image/webp"
     };
 
-    public StorageController(AppDbContext context, IR2StorageService storage)
+    public StorageController(AppDbContext context, IR2StorageService storage, INotificationService notifications)
     {
         _context = context;
         _storage = storage;
+        _notifications = notifications;
     }
 
 
@@ -37,23 +40,23 @@ public class StorageController : ControllerBase
     public async Task<IActionResult> Upload(IFormFile file)
     {
         if (file == null || file.Length == 0)
-            return BadRequest("Файл не надано.");
+            return BadRequest(new { message = "Файл не надано." });
 
         if (file.Length > MaxFileSize)
-            return BadRequest("Файл перевищує ліміт 25 MB.");
+            return BadRequest(new { message = "Файл перевищує ліміт 25 MB." });
 
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedTypes.TryGetValue(extension, out var expectedContentType))
-            return BadRequest("Дозволені формати: .pdf, .docx, .webp");
+            return BadRequest(new { message = "Дозволені формати: .pdf, .docx, .webp" });
 
         if (!string.Equals(file.ContentType, expectedContentType, StringComparison.OrdinalIgnoreCase))
-            return BadRequest("Тип файлу не відповідає його розширенню.");
+            return BadRequest(new { message = "Тип файлу не відповідає його розширенню." });
 
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var materialId = Guid.NewGuid();
         var key = $"groups/{user.GroupId}/{materialId}{extension}";
@@ -78,6 +81,23 @@ public class StorageController : ControllerBase
         _context.LectureMaterials.Add(material);
         await _context.SaveChangesAsync();
 
+
+        var recipients = await _context.Users
+            .AsNoTracking()
+            .Where(u => u.GroupId == user.GroupId && u.Id != userId)
+            .Select(u => u.Id)
+            .ToListAsync();
+
+        if (recipients.Count > 0)
+        {
+            await _notifications.NotifyManyAsync(
+                recipients,
+                NotificationType.MaterialUploaded,
+                $"{user.Username} завантажив новий матеріал",
+                material.FileName,
+                material.Id);
+        }
+
         return Ok(new
         {
             material.Id,
@@ -96,7 +116,7 @@ public class StorageController : ControllerBase
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var materials = await _context.LectureMaterials
             .AsNoTracking()
@@ -123,11 +143,12 @@ public class StorageController : ControllerBase
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var material = await _context.LectureMaterials.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id);
-        if (material == null) return NotFound();
-        if (material.GroupId != user.GroupId) return Forbid();
+        if (material == null) return NotFound(new { message = "Матеріал не знайдено." });
+        if (material.GroupId != user.GroupId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Матеріал належить іншій групі." });
 
         var url = _storage.GetPresignedDownloadUrl(material.R2Key, material.FileName, TimeSpan.FromMinutes(5));
 
@@ -141,17 +162,17 @@ public class StorageController : ControllerBase
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var material = await _context.LectureMaterials.Include(m => m.Group).FirstOrDefaultAsync(m => m.Id == id);
 
-        if (material == null) return NotFound();
+        if (material == null) return NotFound(new { message = "Матеріал не знайдено." });
 
 
         if (material.UploaderId != userId && material.Group?.OwnerId != userId)
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Видалити може тільки той, хто завантажив, або староста групи." });
 
         await _storage.DeleteAsync(material.R2Key);
 
         _context.LectureMaterials.Remove(material);
         await _context.SaveChangesAsync();
-        return Ok("Матеріал видалено");
+        return Ok(new { message = "Матеріал видалено" });
     }
 
 
@@ -162,11 +183,12 @@ public class StorageController : ControllerBase
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var material = await _context.LectureMaterials.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id);
-        if (material == null) return NotFound();
-        if (material.GroupId != user.GroupId) return Forbid();
+        if (material == null) return NotFound(new { message = "Матеріал не знайдено." });
+        if (material.GroupId != user.GroupId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Матеріал належить іншій групі." });
 
         var flat = await _context.MaterialComments
             .AsNoTracking()
@@ -190,17 +212,18 @@ public class StorageController : ControllerBase
     public async Task<IActionResult> CreateComment(Guid id, [FromBody] CreateCommentDto dto)
     {
         if (string.IsNullOrWhiteSpace(dto.Content))
-            return BadRequest("Коментар не може бути порожнім.");
+            return BadRequest(new { message = "Коментар не може бути порожнім." });
 
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
         var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
 
         if (user?.GroupId == null)
-            return BadRequest("Ви не належите до жодної групи.");
+            return BadRequest(new { message = "Ви не належите до жодної групи." });
 
         var material = await _context.LectureMaterials.AsNoTracking().FirstOrDefaultAsync(m => m.Id == id);
-        if (material == null) return NotFound();
-        if (material.GroupId != user.GroupId) return Forbid();
+        if (material == null) return NotFound(new { message = "Матеріал не знайдено." });
+        if (material.GroupId != user.GroupId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Матеріал належить іншій групі." });
 
         if (dto.ParentCommentId.HasValue)
         {
@@ -208,7 +231,7 @@ public class StorageController : ControllerBase
                 .AnyAsync(c => c.Id == dto.ParentCommentId.Value && c.MaterialId == id);
 
             if (!parentExists)
-                return BadRequest("Батьківський коментар не знайдено.");
+                return BadRequest(new { message = "Батьківський коментар не знайдено." });
         }
 
         var comment = new MaterialComment
@@ -243,15 +266,15 @@ public class StorageController : ControllerBase
             .Include(c => c.Material!).ThenInclude(m => m.Group)
             .FirstOrDefaultAsync(c => c.Id == commentId);
 
-        if (comment == null) return NotFound();
+        if (comment == null) return NotFound(new { message = "Коментар не знайдено." });
 
 
         if (comment.AuthorId != userId && comment.Material?.Group?.OwnerId != userId)
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Видалити може тільки автор або староста групи." });
 
         _context.MaterialComments.Remove(comment);
         await _context.SaveChangesAsync();
-        return Ok("Коментар видалено");
+        return Ok(new { message = "Коментар видалено" });
     }
 
 
@@ -290,4 +313,8 @@ public record MaterialCommentDto(
     DateTime CreatedAt,
     List<MaterialCommentDto> Replies);
 
-public record CreateCommentDto(string Content, Guid? ParentCommentId);
+public record CreateCommentDto(
+    [Required(ErrorMessage = "Текст коментаря обов'язковий")]
+    [StringLength(2000, MinimumLength = 1, ErrorMessage = "Коментар має бути від 1 до 2000 символів")]
+    string Content,
+    Guid? ParentCommentId);

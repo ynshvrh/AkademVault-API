@@ -1,0 +1,266 @@
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using AkademVault_API.Data;
+using AkademVault_API.Models;
+using AkademVault_API.Services;
+using System.ComponentModel.DataAnnotations;
+using System.Security.Claims;
+using System.Security.Cryptography;
+
+namespace AkademVault_API.Controllers;
+
+[Authorize]
+[ApiController]
+[Route("api/[controller]")]
+public class InvitationController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    private readonly INotificationService _notifications;
+
+    private static readonly TimeSpan LinkTtl = TimeSpan.FromDays(30);
+
+    public InvitationController(AppDbContext context, INotificationService notifications)
+    {
+        _context = context;
+        _notifications = notifications;
+    }
+
+
+    [HttpPost("send")]
+    public async Task<IActionResult> Send([FromBody] SendInvitationRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.UsernameOrEmail))
+            return BadRequest(new { message = "Вкажіть username або email" });
+
+        var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var group = await _context.Groups.FirstOrDefaultAsync(g => g.OwnerId == ownerId);
+        if (group == null)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може запрошувати." });
+
+        var query = request.UsernameOrEmail.Trim();
+        var target = await _context.Users.FirstOrDefaultAsync(u =>
+            u.Username == query || u.Email == query);
+
+        if (target == null) return NotFound(new { message = "Користувача не знайдено" });
+        if (target.Id == ownerId) return BadRequest(new { message = "Не можна запрошувати самого себе" });
+        if (target.GroupId == group.Id) return BadRequest(new { message = "Користувач вже у вашій групі" });
+
+        var existing = await _context.Invitations.AnyAsync(i =>
+            i.GroupId == group.Id && i.InvitedUserId == target.Id && i.Status == InvitationStatus.Pending);
+        if (existing) return BadRequest(new { message = "Запрошення вже надіслано" });
+
+        var invitation = new Invitation
+        {
+            Id = Guid.NewGuid(),
+            GroupId = group.Id,
+            InvitedUserId = target.Id,
+            InvitedByUserId = ownerId,
+            Status = InvitationStatus.Pending,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Invitations.Add(invitation);
+        await _context.SaveChangesAsync();
+
+        await _notifications.NotifyAsync(
+            target.Id,
+            NotificationType.GroupInvitation,
+            $"Вас запросили до групи {group.Name}",
+            $"Староста групи {group.Name} ({group.ShortCode}) запрошує вас приєднатися.",
+            invitation.Id);
+
+        return Ok(new { invitationId = invitation.Id });
+    }
+
+
+    [HttpGet("inbox")]
+    public async Task<IActionResult> Inbox()
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+
+        var pending = await _context.Invitations
+            .AsNoTracking()
+            .Where(i => i.InvitedUserId == userId && i.Status == InvitationStatus.Pending)
+            .OrderByDescending(i => i.CreatedAt)
+            .Select(i => new InvitationDto(
+                i.Id,
+                i.GroupId,
+                i.Group!.Name,
+                i.Group.ShortCode,
+                i.InvitedBy!.Username,
+                i.CreatedAt))
+            .ToListAsync();
+
+        return Ok(pending);
+    }
+
+
+    [HttpPost("{id}/accept")]
+    public async Task<IActionResult> Accept(Guid id)
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var invitation = await _context.Invitations.FirstOrDefaultAsync(i => i.Id == id && i.InvitedUserId == userId);
+        if (invitation == null) return NotFound(new { message = "Запрошення не знайдено." });
+        if (invitation.Status != InvitationStatus.Pending) return BadRequest(new { message = "Це запрошення вже оброблено" });
+
+        var user = await _context.Users.FindAsync(userId);
+        if (user!.GroupId != null) return BadRequest(new { message = "Ви вже у групі. Вийдіть з поточної перш ніж приймати інше запрошення." });
+
+        user.GroupId = invitation.GroupId;
+        invitation.Status = InvitationStatus.Accepted;
+        invitation.RespondedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return Ok(new { message = "Ви приєдналися до групи", groupId = invitation.GroupId });
+    }
+
+
+    [HttpPost("{id}/decline")]
+    public async Task<IActionResult> Decline(Guid id)
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var invitation = await _context.Invitations.FirstOrDefaultAsync(i => i.Id == id && i.InvitedUserId == userId);
+        if (invitation == null) return NotFound(new { message = "Запрошення не знайдено." });
+        if (invitation.Status != InvitationStatus.Pending) return BadRequest(new { message = "Це запрошення вже оброблено" });
+
+        invitation.Status = InvitationStatus.Declined;
+        invitation.RespondedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+        return Ok(new { message = "Запрошення відхилено" });
+    }
+
+
+    [HttpPost("links")]
+    public async Task<IActionResult> CreateLink()
+    {
+        var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var group = await _context.Groups.FirstOrDefaultAsync(g => g.OwnerId == ownerId);
+        if (group == null)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може створювати лінк." });
+
+        var token = GenerateToken();
+        var link = new GroupInviteLink
+        {
+            Id = Guid.NewGuid(),
+            GroupId = group.Id,
+            CreatedByUserId = ownerId,
+            Token = token,
+            CreatedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.Add(LinkTtl)
+        };
+
+        _context.GroupInviteLinks.Add(link);
+        await _context.SaveChangesAsync();
+
+        return Ok(new InviteLinkDto(link.Id, link.Token, link.CreatedAt, link.ExpiresAt, null));
+    }
+
+
+    [HttpGet("links")]
+    public async Task<IActionResult> ListLinks()
+    {
+        var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var group = await _context.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.OwnerId == ownerId);
+        if (group == null)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може переглядати лінки." });
+
+        var links = await _context.GroupInviteLinks
+            .AsNoTracking()
+            .Where(l => l.GroupId == group.Id)
+            .OrderByDescending(l => l.CreatedAt)
+            .Select(l => new InviteLinkDto(l.Id, l.Token, l.CreatedAt, l.ExpiresAt, l.RevokedAt))
+            .ToListAsync();
+
+        return Ok(links);
+    }
+
+
+    [HttpPost("links/{id}/revoke")]
+    public async Task<IActionResult> RevokeLink(Guid id)
+    {
+        var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var link = await _context.GroupInviteLinks.Include(l => l.Group).FirstOrDefaultAsync(l => l.Id == id);
+        if (link == null) return NotFound(new { message = "Лінк не знайдено." });
+        if (link.Group?.OwnerId != ownerId)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Лінк належить іншій групі." });
+        if (link.RevokedAt != null) return BadRequest(new { message = "Лінк вже відкликаний" });
+
+        link.RevokedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+        return Ok();
+    }
+
+
+    [HttpGet("links/by-token/{token}/preview")]
+    [AllowAnonymous]
+    public async Task<IActionResult> PreviewLink(string token)
+    {
+        var link = await _context.GroupInviteLinks
+            .AsNoTracking()
+            .Include(l => l.Group)
+            .FirstOrDefaultAsync(l => l.Token == token);
+
+        if (link == null) return NotFound(new { message = "Лінк не знайдено." });
+        if (link.RevokedAt != null) return BadRequest(new { message = "Лінк відкликаний" });
+        if (link.ExpiresAt < DateTime.UtcNow) return BadRequest(new { message = "Термін дії лінку минув" });
+
+        return Ok(new
+        {
+            groupId = link.GroupId,
+            groupName = link.Group!.Name,
+            groupShortCode = link.Group.ShortCode,
+            expiresAt = link.ExpiresAt
+        });
+    }
+
+
+    [HttpPost("links/by-token/{token}/accept")]
+    public async Task<IActionResult> AcceptLink(string token)
+    {
+        var link = await _context.GroupInviteLinks.FirstOrDefaultAsync(l => l.Token == token);
+        if (link == null) return NotFound(new { message = "Лінк не знайдено." });
+        if (link.RevokedAt != null) return BadRequest(new { message = "Лінк відкликаний" });
+        if (link.ExpiresAt < DateTime.UtcNow) return BadRequest(new { message = "Термін дії лінку минув" });
+
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var user = await _context.Users.FindAsync(userId);
+        if (user!.GroupId == link.GroupId) return BadRequest(new { message = "Ви вже в цій групі" });
+        if (user.GroupId != null) return BadRequest(new { message = "Ви вже в іншій групі. Вийдіть з поточної перш ніж приєднуватися." });
+
+        user.GroupId = link.GroupId;
+        await _context.SaveChangesAsync();
+
+        return Ok(new { message = "Ви приєдналися до групи", groupId = link.GroupId });
+    }
+
+
+    private static string GenerateToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(24);
+        return Convert.ToBase64String(bytes).Replace("+", "-").Replace("/", "_").TrimEnd('=');
+    }
+}
+
+public class SendInvitationRequest
+{
+    [Required(ErrorMessage = "Username або email обов'язкові")]
+    [StringLength(100, MinimumLength = 1)]
+    public string UsernameOrEmail { get; set; } = string.Empty;
+}
+
+public record InvitationDto(
+    Guid Id,
+    Guid GroupId,
+    string GroupName,
+    string GroupShortCode,
+    string InvitedByName,
+    DateTime CreatedAt);
+
+public record InviteLinkDto(
+    Guid Id,
+    string Token,
+    DateTime CreatedAt,
+    DateTime ExpiresAt,
+    DateTime? RevokedAt);

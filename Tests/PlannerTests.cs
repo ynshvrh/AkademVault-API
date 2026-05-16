@@ -46,8 +46,9 @@ public class PlannerTests
        
         var result = await controller.CreateAssignment(dto);
 
-      
-        result.Should().BeOfType<ForbidResult>(); 
+
+        var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
     [Fact]
@@ -111,7 +112,7 @@ public class PlannerTests
 
        
         var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
-        var assignments = okResult.Value as List<Assignment>;
+        var assignments = okResult.Value as List<AssignmentResponseDto>;
         assignments.Should().NotBeNull();
         assignments.Should().HaveCount(1);
         assignments!.First().Title.Should().Be("Наша Лаба");
@@ -163,7 +164,7 @@ public async Task GetWeeklyAssignments_ShouldOnlyReturnTasksForCurrentWeek()
 
   
     var okResult = result.Should().BeOfType<OkObjectResult>().Subject;
-    var assignments = okResult.Value as List<Assignment>;
+    var assignments = okResult.Value as List<AssignmentResponseDto>;
     
     assignments.Should().HaveCount(1);
     assignments!.First().Title.Should().Be("Поточна лаба");

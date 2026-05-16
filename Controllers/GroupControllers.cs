@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.Models;
+using AkademVault_API.Services;
+using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
@@ -13,10 +15,12 @@ namespace AkademVault_API.Controllers;
 public class GroupController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IShortCodeGenerator _codes;
 
-    public GroupController(AppDbContext context)
+    public GroupController(AppDbContext context, IShortCodeGenerator codes)
     {
         _context = context;
+        _codes = codes;
     }
 
     [HttpPost("create")]
@@ -28,10 +32,17 @@ public class GroupController : ControllerBase
         if (user?.GroupId != null)
             return BadRequest(new { message = "Ви вже перебуваєте в групі" });
 
+        string shortCode;
+        do
+        {
+            shortCode = _codes.Generate();
+        } while (await _context.Groups.AnyAsync(g => g.ShortCode == shortCode));
+
         var group = new Group
         {
             Id = Guid.NewGuid(),
             Name = request.Name,
+            ShortCode = shortCode,
             CreatedAt = DateTime.UtcNow,
             ExpiryDate = DateTime.UtcNow.AddYears(request.YearsOfStudy),
             OwnerId = userId
@@ -63,6 +74,7 @@ public class GroupController : ControllerBase
             .Select(g => new GroupSummaryDto(
                 g.Id,
                 g.Name,
+                g.ShortCode,
                 g.Owner!.Username,
                 g.Members.Count,
                 g.ExpiryDate))
@@ -87,6 +99,7 @@ public class GroupController : ControllerBase
             .Select(g => new GroupDetailsDto(
                 g.Id,
                 g.Name,
+                g.ShortCode,
                 g.OwnerId,
                 g.Owner!.Username,
                 g.CreatedAt,
@@ -94,7 +107,7 @@ public class GroupController : ControllerBase
                 g.Members.Select(m => new GroupMemberDto(m.Id, m.Username, m.Id == g.OwnerId)).ToList()))
             .FirstOrDefaultAsync();
 
-        return group == null ? NotFound() : Ok(group);
+        return group == null ? NotFound(new { message = "Групу не знайдено." }) : Ok(group);
     }
 
 
@@ -125,7 +138,7 @@ public class GroupController : ControllerBase
         var group = await _context.Groups.FirstOrDefaultAsync(g => g.OwnerId == ownerId);
 
         if (group == null)
-            return Forbid();
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може виганяти учасників." });
 
         if (userId == ownerId)
             return BadRequest(new { message = "Не можна вигнати самого себе" });
@@ -143,17 +156,22 @@ public class GroupController : ControllerBase
 
 public class CreateGroupRequest
 {
+    [Required(ErrorMessage = "Назва групи обов'язкова")]
+    [StringLength(50, MinimumLength = 2, ErrorMessage = "Назва має бути від 2 до 50 символів")]
     public string Name { get; set; } = string.Empty;
+
+    [Range(1, 7, ErrorMessage = "Тривалість навчання має бути від 1 до 7 років")]
     public int YearsOfStudy { get; set; } = 4;
 }
 
-public record GroupSummaryDto(Guid Id, string Name, string OwnerName, int MemberCount, DateTime ExpiryDate);
+public record GroupSummaryDto(Guid Id, string Name, string ShortCode, string OwnerName, int MemberCount, DateTime ExpiryDate);
 
 public record GroupMemberDto(Guid Id, string Username, bool IsOwner);
 
 public record GroupDetailsDto(
     Guid Id,
     string Name,
+    string ShortCode,
     Guid OwnerId,
     string OwnerName,
     DateTime CreatedAt,

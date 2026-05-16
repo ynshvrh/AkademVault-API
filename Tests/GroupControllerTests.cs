@@ -4,11 +4,18 @@ using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Controllers;
 using AkademVault_API.Data;
 using AkademVault_API.Models;
+using AkademVault_API.Services;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Http;
 
 namespace Tests;
+
+public class TestShortCodeGenerator : IShortCodeGenerator
+{
+    private int _i;
+    public string Generate() => $"TST-{(++_i).ToString("D4")}";
+}
 
 public class GroupControllerTests
 {
@@ -35,7 +42,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
 
 
         var userId = Guid.NewGuid();
@@ -85,7 +92,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -113,7 +120,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var userId = Guid.NewGuid();
 
         context.Users.Add(new User { Id = userId, Username = "lonely" });
@@ -133,7 +140,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var ownerId = Guid.NewGuid();
         var memberId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
@@ -164,7 +171,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -188,7 +195,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var memberId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -212,7 +219,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var memberId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
@@ -228,7 +235,7 @@ public class GroupControllerTests
         var result = await controller.Kick(targetId);
 
 
-        result.Should().BeOfType<ForbidResult>();
+        var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
     [Fact]
@@ -236,7 +243,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var ownerId = Guid.NewGuid();
         var targetId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
@@ -262,7 +269,7 @@ public class GroupControllerTests
     {
 
         var context = GetDbContext();
-        var controller = new GroupController(context);
+        var controller = new GroupController(context, new TestShortCodeGenerator());
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 

@@ -49,7 +49,7 @@ public class DigestTests
 
         var context = GetDbContext();
         var ai = new FakeDigestAIClient();
-        var controller = new DigestController(context, ai);
+        var controller = new DigestController(context, ai, new FakeNotificationService());
 
         var ownerId = Guid.NewGuid();
         context.Groups.Add(new Group { Id = Guid.NewGuid(), Name = "КН-31", OwnerId = ownerId });
@@ -71,7 +71,7 @@ public class DigestTests
 
         var context = GetDbContext();
         var ai = new FakeDigestAIClient();
-        var controller = new DigestController(context, ai);
+        var controller = new DigestController(context, ai, new FakeNotificationService());
 
         var ownerId = Guid.NewGuid();
         var memberId = Guid.NewGuid();
@@ -87,7 +87,8 @@ public class DigestTests
         var result = await controller.Generate("day");
 
 
-        result.Should().BeOfType<ForbidResult>();
+        var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
         ai.LastUserPrompt.Should().BeNull();
     }
 
@@ -97,7 +98,7 @@ public class DigestTests
 
         var context = GetDbContext();
         var ai = new FakeDigestAIClient();
-        var controller = new DigestController(context, ai);
+        var controller = new DigestController(context, ai, new FakeNotificationService());
 
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
@@ -122,7 +123,7 @@ public class DigestTests
 
         var context = GetDbContext();
         var ai = new FakeDigestAIClient { Response = "- Завантажено лекцію\n- Створено завдання" };
-        var controller = new DigestController(context, ai);
+        var controller = new DigestController(context, ai, new FakeNotificationService());
 
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
@@ -175,7 +176,7 @@ public class DigestTests
 
         var context = GetDbContext();
         var ai = new FakeDigestAIClient();
-        var controller = new DigestController(context, ai);
+        var controller = new DigestController(context, ai, new FakeNotificationService());
 
         var ownerId = Guid.NewGuid();
         var groupId = Guid.NewGuid();

@@ -73,6 +73,10 @@ builder.Services.AddSingleton<IR2StorageService>(sp =>
     new R2StorageService(sp.GetRequiredService<IAmazonS3>(), r2Bucket ?? string.Empty));
 
 
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddSingleton<IShortCodeGenerator, ShortCodeGenerator>();
+
+
 var openRouterKey   = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
 var openRouterModel = Environment.GetEnvironmentVariable("OPENROUTER_MODEL") ?? "anthropic/claude-haiku-4-5";
 var openRouterUrl   = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1";
@@ -89,11 +93,15 @@ else
 builder.Services.AddHttpClient(nameof(OpenRouterClient))
     .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
 
-builder.Services.AddTransient<IDigestAIClient>(sp =>
+builder.Services.AddTransient<OpenRouterClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
     return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModel, openRouterUrl);
 });
+
+builder.Services.AddTransient<IDigestAIClient>(sp => sp.GetRequiredService<OpenRouterClient>());
+builder.Services.AddTransient<IMultimodalAIClient>(sp => sp.GetRequiredService<OpenRouterClient>());
+builder.Services.AddTransient<IScheduleParser, ScheduleParser>();
 
 
 var corsOriginsRaw = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS") ?? "http://localhost:4200";
@@ -139,9 +147,9 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SameSite = SameSiteMode.Lax;
 });
 
-builder.Services.AddControllers(options =>
+builder.Services.AddControllersWithViews(options =>
 {
-    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+    options.Filters.Add<JsonAntiforgeryFilter>();
 });
 
 builder.Services.AddSignalR();
@@ -191,20 +199,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 
-app.Use(async (context, next) =>
-{
-    var antiforgery = context.RequestServices.GetRequiredService<IAntiforgery>();
-    var tokens = antiforgery.GetAndStoreTokens(context);
-    context.Response.Cookies.Append("XSRF-TOKEN", tokens.RequestToken!, new CookieOptions
-    {
-        HttpOnly = false,
-        SameSite = SameSiteMode.Lax,
-        Secure = context.Request.IsHttps
-    });
-    await next();
-});
-
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.Run();

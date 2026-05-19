@@ -1,12 +1,16 @@
 namespace AkademVault_API.Services;
 
+// Cryptographically random short-code generator for human-shareable group identifiers.
 public interface IShortCodeGenerator
 {
+    // Returns a fresh formatted code such as "ABCD-1234".
     string Generate();
 }
 
+// Concrete generator: pulls 8 random bytes and maps each into an unambiguous-character alphabet.
 public class ShortCodeGenerator : IShortCodeGenerator
 {
+    // Crockford-style alphabet without 0/1/I/O to avoid visual ambiguity in shared codes.
     private const string Alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
     public string Generate()

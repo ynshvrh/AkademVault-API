@@ -3,6 +3,7 @@ using AkademVault_API.Models;
 
 namespace AkademVault_API.Data;
 
+// EF Core DbContext: holds DbSets for every domain entity and wires up FluentAPI relationships and indexes.
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
@@ -18,12 +19,15 @@ public class AppDbContext : DbContext
     public DbSet<Invitation> Invitations { get; set; }
     public DbSet<GroupInviteLink> GroupInviteLinks { get; set; }
     public DbSet<ScheduleEntry> ScheduleEntries { get; set; }
+    public DbSet<MessageRead> MessageReads { get; set; }
 
+    // Configures FK delete behaviours and indexes; deletion rules encode the domain invariants.
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
 
+        // Deleting a Group releases its members rather than cascading them out.
         modelBuilder.Entity<User>()
             .HasOne(u => u.Group)
             .WithMany(g => g.Members)
@@ -31,6 +35,7 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.SetNull);
 
 
+        // Restrict: an Owner cannot be deleted while they still own a Group.
         modelBuilder.Entity<Group>()
             .HasOne(g => g.Owner)
             .WithMany()
@@ -64,6 +69,7 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
 
 
+        // Composite index powers the paginated chat history query (WHERE GroupId ORDER BY SentAt DESC).
         modelBuilder.Entity<ChatMessage>()
             .HasIndex(m => new { m.GroupId, m.SentAt });
 
@@ -100,6 +106,7 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Restrict);
 
 
+        // Self-FK for threaded replies; Restrict prevents accidental tree corruption on delete.
         modelBuilder.Entity<MaterialComment>()
             .HasOne(c => c.ParentComment)
             .WithMany(c => c.Replies)
@@ -114,6 +121,7 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
 
 
+        // Composite index powers the inbox query (WHERE UserId AND IsRead ORDER BY CreatedAt DESC).
         modelBuilder.Entity<Notification>()
             .HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
 
@@ -164,5 +172,25 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ScheduleEntry>()
             .HasIndex(s => new { s.GroupId, s.DayOfWeek, s.StartTime });
+
+
+        // Composite PK (MessageId, UserId) — each user can mark a given message as read once.
+        modelBuilder.Entity<MessageRead>()
+            .HasKey(r => new { r.MessageId, r.UserId });
+
+        modelBuilder.Entity<MessageRead>()
+            .HasOne(r => r.Message)
+            .WithMany(m => m.Reads)
+            .HasForeignKey(r => r.MessageId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MessageRead>()
+            .HasOne(r => r.User)
+            .WithMany()
+            .HasForeignKey(r => r.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<MessageRead>()
+            .HasIndex(r => r.UserId);
     }
 }

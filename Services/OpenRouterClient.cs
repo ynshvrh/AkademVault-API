@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace AkademVault_API.Services;
 
+// OpenRouter-backed implementation of both digest (text) and multimodal AI clients.
 public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
 {
     private readonly HttpClient _http;
@@ -20,6 +21,7 @@ public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
         _http.DefaultRequestHeaders.Add("X-Title", "AkademVault");
     }
 
+    // Single-turn text completion used for the activity digest.
     public async Task<string> SummarizeAsync(string systemPrompt, string userPrompt, CancellationToken ct = default)
     {
         var payload = new
@@ -36,6 +38,7 @@ public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
         return await PostAndExtractAsync(payload, ct);
     }
 
+    // Multimodal completion — inlines each attachment as a data: URI (image_url / file).
     public async Task<string> CallAsync(string systemPrompt, string userPrompt, IEnumerable<MultimodalAttachment> attachments, CancellationToken ct = default)
     {
         var userContent = new List<object> { new { type = "text", text = userPrompt } };
@@ -72,6 +75,7 @@ public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
         return await PostAndExtractAsync(payload, ct);
     }
 
+    // POSTs to /chat/completions, surfaces upstream errors verbatim, and returns the first choice's content.
     private async Task<string> PostAndExtractAsync(object payload, CancellationToken ct)
     {
         var response = await _http.PostAsJsonAsync("chat/completions", payload, ct);

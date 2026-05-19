@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Single message in a group's chat; Reads collects per-user read-receipts.
 public class ChatMessage
 {
     public Guid Id { get; set; }
@@ -24,4 +25,6 @@ public class ChatMessage
     public string Content { get; set; } = string.Empty;
 
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+
+    public ICollection<MessageRead> Reads { get; set; } = new List<MessageRead>();
 }

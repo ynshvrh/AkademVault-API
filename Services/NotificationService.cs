@@ -5,6 +5,7 @@ using AkademVault_API.Models;
 
 namespace AkademVault_API.Services;
 
+// Concrete INotificationService: writes to the Notifications table and broadcasts via NotificationHub.
 public class NotificationService : INotificationService
 {
     private readonly AppDbContext _context;
@@ -16,6 +17,7 @@ public class NotificationService : INotificationService
         _hub = hub;
     }
 
+    // Inserts one Notification row and emits ReceiveNotification on the user-scoped SignalR group.
     public async Task NotifyAsync(Guid userId, NotificationType type, string title, string body, Guid? relatedEntityId = null, CancellationToken ct = default)
     {
         var notif = new Notification
@@ -44,6 +46,7 @@ public class NotificationService : INotificationService
         }, ct);
     }
 
+    // Bulk-inserts notifications and pushes one ReceiveNotification per recipient (still N hub calls).
     public async Task NotifyManyAsync(IEnumerable<Guid> userIds, NotificationType type, string title, string body, Guid? relatedEntityId = null, CancellationToken ct = default)
     {
         var ids = userIds.Distinct().ToList();

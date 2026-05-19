@@ -9,6 +9,7 @@ using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
 
+// Weekly schedule CRUD plus AI-driven import from PDF/XLSX/image files.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -35,6 +36,7 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Returns the caller's group schedule ordered by weekday/time for the calendar view.
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
@@ -61,6 +63,7 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Owner-only: creates a single schedule entry after validating the time window.
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] ScheduleEntryWriteDto dto)
     {
@@ -90,6 +93,7 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Owner-only: replaces an entry's fields if it belongs to the Owner's group.
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] ScheduleEntryWriteDto dto)
     {
@@ -120,6 +124,7 @@ public class ScheduleController : ControllerBase
         e.StartTime, e.EndTime, e.Location, e.Teacher);
 
 
+    // Owner-only: deletes a single entry by id.
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
@@ -137,6 +142,22 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Owner-only: wipes the entire group schedule (used before reimporting from a file).
+    [HttpDelete("all")]
+    public async Task<IActionResult> DeleteAll()
+    {
+        var (group, error) = await GetOwnedGroupAsync();
+        if (error != null) return error;
+
+        var deleted = await _context.ScheduleEntries
+            .Where(s => s.GroupId == group!.Id)
+            .ExecuteDeleteAsync();
+
+        return Ok(new { deleted });
+    }
+
+
+    // Owner-only: hands an uploaded PDF/XLSX/image to the AI parser and returns proposed entries (not yet saved).
     [HttpPost("parse")]
     [RequestSizeLimit(10_485_760)]
     public async Task<IActionResult> Parse(IFormFile file, CancellationToken ct)
@@ -170,6 +191,7 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Owner-only: persists a batch of entries (typically the user-reviewed AI parse result).
     [HttpPost("confirm")]
     public async Task<IActionResult> Confirm([FromBody] List<ScheduleEntryWriteDto> entries)
     {
@@ -206,6 +228,7 @@ public class ScheduleController : ControllerBase
     }
 
 
+    // Looks up the group owned by the caller; returns a 403 IActionResult when the caller is not an Owner.
     private async Task<(Group? group, IActionResult? error)> GetOwnedGroupAsync()
     {
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
@@ -216,6 +239,7 @@ public class ScheduleController : ControllerBase
     }
 }
 
+// Read DTO for schedule entries returned to the SPA.
 public record ScheduleEntryDto(
     Guid Id,
     string Title,
@@ -226,6 +250,7 @@ public record ScheduleEntryDto(
     string? Location,
     string? Teacher);
 
+// Write DTO for create/update/confirm endpoints.
 public record ScheduleEntryWriteDto(
     [Required(ErrorMessage = "Назва обов'язкова")]
     [StringLength(150, MinimumLength = 1, ErrorMessage = "Назва має бути від 1 до 150 символів")]

@@ -6,9 +6,11 @@ using DotNetEnv;
 namespace Tests;
 
 
+// Smoke test for OpenRouterClient — hits the real OpenRouter API, gated by OPENROUTER_API_KEY in .env.
 [Trait("Category", "Integration")]
 public class OpenRouterSmokeTest
 {
+    // End-to-end roundtrip: read API key from .env, request a one-word completion, assert non-empty response.
     [Fact]
     public async Task SummarizeAsync_ShouldReturnNonEmptyResponse()
     {

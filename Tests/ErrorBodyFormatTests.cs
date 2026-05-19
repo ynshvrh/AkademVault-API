@@ -12,6 +12,7 @@ using System.Security.Claims;
 namespace Tests;
 
 
+// Cross-controller tests asserting that every error path returns a JSON body with a "message" string.
 public class ErrorBodyFormatTests
 {
     private AppDbContext GetDbContext()
@@ -49,6 +50,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Group/Create 400 body carries a user-facing "вже перебуваєте" message.
     [Fact]
     public async Task GroupCreate_AlreadyInGroup_HasJsonMessage()
     {
@@ -68,6 +70,7 @@ public class ErrorBodyFormatTests
         ExtractMessage(bad.Value).Should().Contain("вже перебуваєте");
     }
 
+    // Group/Kick 403 includes a "староста" hint in the message body.
     [Fact]
     public async Task GroupKick_NotOwner_Returns403WithMessage()
     {
@@ -83,6 +86,7 @@ public class ErrorBodyFormatTests
         ExtractMessage(obj.Value).Should().Contain("староста");
     }
 
+    // Group/Mine 404 body includes a non-empty message instead of a bare status code.
     [Fact]
     public async Task GroupMine_NoGroup_Returns404WithMessage()
     {
@@ -100,6 +104,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Invitation/Send 403 body explains that only the Owner can invite.
     [Fact]
     public async Task InvitationSend_NotOwner_Returns403WithMessage()
     {
@@ -116,6 +121,7 @@ public class ErrorBodyFormatTests
         ExtractMessage((result as ObjectResult)?.Value).Should().Contain("староста");
     }
 
+    // Invitation/Accept 404 includes a body message even when the invitation is missing.
     [Fact]
     public async Task InvitationAccept_NotFound_HasJsonMessage()
     {
@@ -131,6 +137,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Schedule/Create 403 body explains the Owner restriction.
     [Fact]
     public async Task ScheduleCreate_NotOwner_Returns403WithMessage()
     {
@@ -146,6 +153,7 @@ public class ErrorBodyFormatTests
         ExtractMessage((result as ObjectResult)?.Value).Should().Contain("староста");
     }
 
+    // Schedule/Create 400 with invalid times has a "Час..." message.
     [Fact]
     public async Task ScheduleCreate_BadTimes_HasJsonMessage()
     {
@@ -165,6 +173,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Storage/Upload 400 for null file still produces a JSON body with a message.
     [Fact]
     public async Task StorageUploadNoFile_HasJsonMessage()
     {
@@ -178,6 +187,7 @@ public class ErrorBodyFormatTests
         ExtractMessage(bad.Value).Should().NotBeNullOrEmpty();
     }
 
+    // Storage/Delete 403 (stranger) carries a non-empty message body.
     [Fact]
     public async Task StorageDelete_NotUploader_Returns403WithMessage()
     {
@@ -202,6 +212,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Planner/Create 403 mentions "староста".
     [Fact]
     public async Task PlannerCreate_NotOwner_Returns403WithMessage()
     {
@@ -216,6 +227,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Digest/Generate 403 mentions "староста".
     [Fact]
     public async Task DigestGenerate_NotOwner_Returns403WithMessage()
     {
@@ -229,6 +241,7 @@ public class ErrorBodyFormatTests
         ExtractMessage((result as ObjectResult)?.Value).Should().Contain("староста");
     }
 
+    // Digest/Generate 400 for invalid period mentions the "period" parameter name.
     [Fact]
     public async Task DigestGenerate_InvalidPeriod_HasJsonMessage()
     {
@@ -243,6 +256,7 @@ public class ErrorBodyFormatTests
     }
 
 
+    // Schedule/Create returns a ScheduleEntryDto (not the EF entity) to keep navigation refs out of JSON.
     [Fact]
     public async Task ScheduleCreate_ReturnsDto_NotEntity()
     {
@@ -261,6 +275,7 @@ public class ErrorBodyFormatTests
         ok.Value.Should().BeOfType<ScheduleEntryDto>();
     }
 
+    // Planner/Create returns AssignmentResponseDto (mirror of the above invariant).
     [Fact]
     public async Task PlannerCreate_ReturnsDto_NotEntity()
     {
@@ -277,6 +292,7 @@ public class ErrorBodyFormatTests
         ok.Value.Should().BeOfType<AssignmentResponseDto>();
     }
 
+    // Marking another user's notification as read returns 404 with a body (no information leak).
     [Fact]
     public async Task NotificationMarkRead_OthersNotif_Returns404WithMessage()
     {

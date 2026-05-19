@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc.Filters;
 namespace AkademVault_API.Services;
 
 
+// Authorization filter that runs CSRF validation on unsafe methods and emits a structured JSON 400 on failure.
 public class JsonAntiforgeryFilter : IAsyncAuthorizationFilter
 {
     private readonly IAntiforgery _antiforgery;
@@ -15,6 +16,7 @@ public class JsonAntiforgeryFilter : IAsyncAuthorizationFilter
         _antiforgery = antiforgery;
     }
 
+    // Validates the antiforgery token for unsafe verbs unless the action opts out via [IgnoreAntiforgeryToken].
     public async Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var method = context.HttpContext.Request.Method;

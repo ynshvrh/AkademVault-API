@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Shareable group-invitation token with TTL and optional revocation timestamp.
 public class GroupInviteLink
 {
     public Guid Id { get; set; }

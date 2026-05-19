@@ -11,6 +11,7 @@ using System.Security.Claims;
 
 namespace Tests;
 
+// Tests for personal invitations and shareable invite-links flows.
 public class InvitationTests
 {
     private AppDbContext GetDbContext()
@@ -30,6 +31,7 @@ public class InvitationTests
         };
     }
 
+    // A non-Owner cannot send personal invitations (403).
     [Fact]
     public async Task Send_ShouldReturnForbid_WhenNotOwner()
     {
@@ -47,6 +49,7 @@ public class InvitationTests
         var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
+    // Successful Send persists an Invitation row and pushes a GroupInvitation notification.
     [Fact]
     public async Task Send_ShouldCreateInvitationAndNotify()
     {
@@ -73,6 +76,7 @@ public class InvitationTests
             .Which.Type.Should().Be(NotificationType.GroupInvitation);
     }
 
+    // Cannot invite someone who is already a member of the Owner's group.
     [Fact]
     public async Task Send_ShouldReturnBadRequest_WhenAlreadyInGroup()
     {
@@ -96,6 +100,7 @@ public class InvitationTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // Accept joins the user to the group and flips the invitation Status to Accepted.
     [Fact]
     public async Task Accept_ShouldJoinUserToGroup()
     {
@@ -129,6 +134,7 @@ public class InvitationTests
         (await context.Invitations.FindAsync(invitationId))!.Status.Should().Be(InvitationStatus.Accepted);
     }
 
+    // Accept is rejected if the user is currently a member of another group (1 group max).
     [Fact]
     public async Task Accept_ShouldReturnBadRequest_WhenAlreadyInGroup()
     {
@@ -160,6 +166,7 @@ public class InvitationTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // Decline flips Status to Declined without changing user.GroupId.
     [Fact]
     public async Task Decline_ShouldSetStatus()
     {
@@ -189,6 +196,7 @@ public class InvitationTests
         (await context.Invitations.FindAsync(invitationId))!.Status.Should().Be(InvitationStatus.Declined);
     }
 
+    // CreateLink mints a non-empty token with ExpiresAt at least 29 days in the future (30-day TTL).
     [Fact]
     public async Task CreateLink_ShouldGenerateLinkWithFutureExpiry()
     {
@@ -211,6 +219,7 @@ public class InvitationTests
         dto.ExpiresAt.Should().BeAfter(DateTime.UtcNow.AddDays(29));
     }
 
+    // AcceptLink with a valid token joins the caller to the link's group.
     [Fact]
     public async Task AcceptLink_ShouldJoinUser()
     {
@@ -242,6 +251,7 @@ public class InvitationTests
         (await context.Users.FindAsync(userId))!.GroupId.Should().Be(groupId);
     }
 
+    // A revoked link is rejected with 400 even if the user has no group yet.
     [Fact]
     public async Task AcceptLink_ShouldReturnBadRequest_WhenRevoked()
     {
@@ -270,6 +280,7 @@ public class InvitationTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // An expired link is rejected with 400.
     [Fact]
     public async Task AcceptLink_ShouldReturnBadRequest_WhenExpired()
     {

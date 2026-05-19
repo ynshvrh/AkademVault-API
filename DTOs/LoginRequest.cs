@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace AkademVault_API.DTOs;
 
+// Request body for POST /auth/login.
 public class LoginRequest
 {
     [Required]

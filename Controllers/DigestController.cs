@@ -9,6 +9,7 @@ using System.Text;
 
 namespace AkademVault_API.Controllers;
 
+// Owner-only AI digest: collects recent group activity and asks the LLM to summarise it in Ukrainian.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -32,6 +33,7 @@ public class DigestController : ControllerBase
     }
 
 
+    // Generates a summary over the last hour/day of group activity and fans out a notification to members.
     [HttpGet]
     public async Task<IActionResult> Generate([FromQuery] string period = "day", CancellationToken ct = default)
     {
@@ -81,6 +83,7 @@ public class DigestController : ControllerBase
             messages = messages.Count
         };
 
+        // Skip the LLM round-trip when the window had no activity.
         if (counts.materials == 0 && counts.assignments == 0 && counts.messages == 0)
         {
             return Ok(new

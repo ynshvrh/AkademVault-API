@@ -11,12 +11,14 @@ using Microsoft.AspNetCore.Http;
 
 namespace Tests;
 
+// Deterministic short-code generator for tests: yields "TST-0001", "TST-0002", … in order.
 public class TestShortCodeGenerator : IShortCodeGenerator
 {
     private int _i;
     public string Generate() => $"TST-{(++_i).ToString("D4")}";
 }
 
+// Tests for the group lifecycle endpoints (create/list/mine/leave/kick) and the Owner/member role checks.
 public class GroupControllerTests
 {
 
@@ -37,6 +39,7 @@ public class GroupControllerTests
         };
     }
 
+    // Create persists the group, links the caller as Owner+member, and sets ExpiryDate = now + YearsOfStudy.
     [Fact]
     public async Task CreateGroup_ShouldSuccess_AndCalculateExpiryDateCorrectlty()
     {
@@ -87,6 +90,7 @@ public class GroupControllerTests
         updatedUser!.GroupId.Should().Be(groupInDb.Id);
     }
 
+    // GET /group returns each group with its OwnerName and the live member count.
     [Fact]
     public async Task GetAll_ShouldReturnAllGroupsWithOwnerAndMemberCount()
     {
@@ -115,6 +119,7 @@ public class GroupControllerTests
         groups.First().MemberCount.Should().Be(2);
     }
 
+    // GET /group/mine returns 404 for a user who has no current group.
     [Fact]
     public async Task GetMine_ShouldReturnNotFound_WhenUserHasNoGroup()
     {
@@ -135,6 +140,7 @@ public class GroupControllerTests
         result.Should().BeOfType<NotFoundObjectResult>();
     }
 
+    // GET /group/mine returns the full member roster with the per-row IsOwner flag.
     [Fact]
     public async Task GetMine_ShouldReturnGroupWithMembers()
     {
@@ -166,6 +172,7 @@ public class GroupControllerTests
         details.Members.First(m => m.Id == memberId).IsOwner.Should().BeFalse();
     }
 
+    // The Owner cannot leave their own group — must transfer or delete it instead.
     [Fact]
     public async Task Leave_ShouldReturnBadRequest_WhenOwner()
     {
@@ -190,6 +197,7 @@ public class GroupControllerTests
         user!.GroupId.Should().Be(groupId, "староста не має виходити");
     }
 
+    // A regular member's GroupId is set to null after Leave.
     [Fact]
     public async Task Leave_ShouldSucceed_WhenRegularMember()
     {
@@ -214,6 +222,7 @@ public class GroupControllerTests
         user!.GroupId.Should().BeNull();
     }
 
+    // A non-Owner attempting to Kick gets 403; group state is unchanged.
     [Fact]
     public async Task Kick_ShouldReturnForbid_WhenNotOwner()
     {
@@ -238,6 +247,7 @@ public class GroupControllerTests
         var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
+    // Owner's Kick clears the target user's GroupId.
     [Fact]
     public async Task Kick_ShouldRemoveUserFromGroup_WhenOwner()
     {
@@ -264,6 +274,7 @@ public class GroupControllerTests
         target!.GroupId.Should().BeNull();
     }
 
+    // The Owner cannot kick themself — would orphan the group.
     [Fact]
     public async Task Kick_ShouldReturnBadRequest_WhenSelfKick()
     {

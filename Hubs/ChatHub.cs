@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 
 namespace AkademVault_API.Hubs;
 
+// SignalR hub for the group chat: per-group SignalR group, message persistence, broadcast and @mentions.
 [Authorize]
 public class ChatHub : Hub
 {
@@ -24,6 +25,7 @@ public class ChatHub : Hub
     }
 
 
+    // Joins the caller to a SignalR group named after their AppGroup so broadcasts stay scoped.
     public override async Task OnConnectedAsync()
     {
         var userId = Guid.Parse(Context.User!.FindFirst(ClaimTypes.NameIdentifier)!.Value);
@@ -40,6 +42,7 @@ public class ChatHub : Hub
     }
 
 
+    // Persists a chat message, broadcasts ReceiveMessage to the group, and notifies any @mentioned members.
     public async Task SendMessage(string content)
     {
         if (string.IsNullOrWhiteSpace(content))

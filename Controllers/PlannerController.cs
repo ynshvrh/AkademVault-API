@@ -8,6 +8,7 @@ using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
 
+// Assignment planner: Owner-managed homework/tasks with deadlines, visible to the whole group.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -18,6 +19,7 @@ public class PlannerController : ControllerBase
     public PlannerController(AppDbContext context) => _context = context;
 
 
+    // Returns all assignments of the caller's group ordered by due date.
     [HttpGet("assignments")]
     public async Task<IActionResult> GetAssignments()
     {
@@ -38,6 +40,7 @@ public class PlannerController : ControllerBase
     }
 
 
+    // Owner-only: creates an assignment in the Owner's group.
     [HttpPost("assignments")]
     public async Task<IActionResult> CreateAssignment([FromBody] AssignmentDto dto)
     {
@@ -65,6 +68,7 @@ public class PlannerController : ControllerBase
     }
 
 
+    // Owner-only: updates title/description/due date of an assignment in the Owner's group.
     [HttpPut("assignments/{id}")]
     public async Task<IActionResult> UpdateAssignment(Guid id, [FromBody] AssignmentDto dto)
     {
@@ -86,6 +90,7 @@ public class PlannerController : ControllerBase
     }
 
 
+    // Owner-only: deletes an assignment from the Owner's group.
     [HttpDelete("assignments/{id}")]
     public async Task<IActionResult> DeleteAssignment(Guid id)
     {
@@ -102,6 +107,7 @@ public class PlannerController : ControllerBase
     }
 
 
+    // Returns assignments due in the current ISO week (Mon-Sun) for the dashboard widget.
     [HttpGet("week")]
     public async Task<IActionResult> GetWeeklyAssignments()
     {
@@ -126,6 +132,7 @@ public class PlannerController : ControllerBase
     }
 }
 
+// Request body for create/update assignment endpoints.
 public record AssignmentDto(
     [Required(ErrorMessage = "Назва обов'язкова")]
     [StringLength(100, MinimumLength = 1, ErrorMessage = "Назва має бути від 1 до 100 символів")]
@@ -135,6 +142,7 @@ public record AssignmentDto(
     [Required(ErrorMessage = "Дедлайн обов'язковий")]
     DateTime DueDate);
 
+// Response projection returned by all planner endpoints.
 public record AssignmentResponseDto(
     Guid Id,
     string Title,

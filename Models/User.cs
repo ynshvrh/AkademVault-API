@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations.Schema;
 namespace AkademVault_API.Models;
 
+// Auth principal; a user belongs to at most one group at a time (nullable GroupId).
 public class User
 {
     public Guid Id { get; set; }

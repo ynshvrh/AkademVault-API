@@ -8,9 +8,11 @@ using DotNetEnv;
 namespace Tests;
 
 
+// Smoke test for ScheduleParser — calls the real OpenRouter API to parse a synthesised XLSX schedule.
 [Trait("Category", "Integration")]
 public class ScheduleParserSmokeTest
 {
+    // Builds a Ukrainian-language XLSX, runs the parser, asserts the Algorithms lecture is extracted with the right times.
     [Fact]
     public async Task ParseXlsx_ShouldExtractScheduleEntries()
     {
@@ -51,6 +53,7 @@ public class ScheduleParserSmokeTest
     }
 
 
+    // Synthesises a small XLSX with header row + 3 lecture rows in Ukrainian for the smoke test.
     private static byte[] BuildSimpleSchedule()
     {
         using var workbook = new XLWorkbook();

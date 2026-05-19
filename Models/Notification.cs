@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Discriminator for the inbox; ordering matches Type column in the DB (do not renumber).
 public enum NotificationType
 {
     MentionInChat = 1,
@@ -10,9 +11,11 @@ public enum NotificationType
     GroupInvitation = 3,
     DigestPublished = 4,
     JoinRequestApproved = 5,
-    JoinRequestRejected = 6
+    JoinRequestRejected = 6,
+    MentionInComment = 7
 }
 
+// Persistent per-user inbox row; RelatedEntityId lets the SPA deep-link to the source entity.
 public class Notification
 {
     public Guid Id { get; set; }

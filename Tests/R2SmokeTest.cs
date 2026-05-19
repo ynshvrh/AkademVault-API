@@ -9,9 +9,11 @@ using DotNetEnv;
 namespace Tests;
 
 
+// Smoke test for R2StorageService — exercises real Cloudflare R2 using credentials from .env.
 [Trait("Category", "Integration")]
 public class R2SmokeTest
 {
+    // Full upload → presigned download → delete → 404 roundtrip against a live R2 bucket.
     [Fact]
     public async Task FullRoundtrip_ShouldUploadDownloadAndDelete()
     {

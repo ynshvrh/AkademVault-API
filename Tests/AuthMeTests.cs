@@ -10,6 +10,7 @@ using System.Security.Claims;
 
 namespace Tests;
 
+// Shared test double — accepts every CSRF call so controller tests don't need real antiforgery wiring.
 public class FakeAntiforgery : IAntiforgery
 {
     public AntiforgeryTokenSet GetAndStoreTokens(HttpContext httpContext)
@@ -21,6 +22,7 @@ public class FakeAntiforgery : IAntiforgery
     public void SetCookieTokenAndHeader(HttpContext httpContext) { }
 }
 
+// Tests for GET /auth/me — verifies session lookup and the derived isOwner flag.
 public class AuthMeTests
 {
     private AppDbContext GetDbContext()
@@ -40,6 +42,7 @@ public class AuthMeTests
         };
     }
 
+    // Returns 401 when the claim points at a user that no longer exists in the DB.
     [Fact]
     public async Task Me_ShouldReturnUnauthorized_WhenUserNotInDb()
     {
@@ -57,6 +60,7 @@ public class AuthMeTests
         result.Should().BeOfType<UnauthorizedResult>();
     }
 
+    // A regular member sees isOwner=false and their groupId/username are echoed back.
     [Fact]
     public async Task Me_ShouldReturnUserWithIsOwnerFalse_WhenNotOwner()
     {
@@ -83,6 +87,7 @@ public class AuthMeTests
         value.GetType().GetProperty("username")!.GetValue(value).Should().Be("student");
     }
 
+    // The group's Owner sees isOwner=true so the SPA can show Owner-only UI.
     [Fact]
     public async Task Me_ShouldReturnIsOwnerTrue_WhenOwner()
     {

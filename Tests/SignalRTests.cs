@@ -13,6 +13,7 @@ using System.Security.Claims;
 namespace Tests;
 
 
+// HubCallerContext stub: lets tests inject a ClaimsPrincipal and observe Abort().
 internal class TestHubCallerContext : HubCallerContext
 {
     public ClaimsPrincipal? UserPrincipal { get; init; }
@@ -28,6 +29,7 @@ internal class TestHubCallerContext : HubCallerContext
     public override void Abort() => Aborted = true;
 }
 
+// IClientProxy stub: records each SendCoreAsync call for assertion.
 internal class TestClientProxy : IClientProxy
 {
     public List<(string Method, object?[] Args)> Calls { get; } = new();
@@ -39,6 +41,7 @@ internal class TestClientProxy : IClientProxy
     }
 }
 
+// IHubCallerClients stub that only implements Group(...) — every other accessor throws.
 internal class TestHubCallerClients : IHubCallerClients
 {
     public Dictionary<string, TestClientProxy> GroupCalls { get; } = new();
@@ -66,6 +69,7 @@ internal class TestHubCallerClients : IHubCallerClients
     public IClientProxy OthersInGroup(string groupName) => throw new NotImplementedException();
 }
 
+// IGroupManager stub that records every AddToGroup call.
 internal class TestGroupManager : IGroupManager
 {
     public List<(string ConnId, string Group)> Added { get; } = new();
@@ -80,6 +84,7 @@ internal class TestGroupManager : IGroupManager
         => Task.CompletedTask;
 }
 
+// Tests for ChatHub: SignalR group subscription, message validation, broadcast and @mention notifications.
 public class ChatHubTests
 {
     private AppDbContext GetDbContext()
@@ -107,6 +112,7 @@ public class ChatHubTests
         return hub;
     }
 
+    // A user without a group is aborted instead of joining the SignalR room.
     [Fact]
     public async Task OnConnected_AbortsConnection_WhenUserHasNoGroup()
     {
@@ -124,6 +130,7 @@ public class ChatHubTests
         groups.Added.Should().BeEmpty();
     }
 
+    // The user with a group is subscribed to a SignalR group named after their GroupId.
     [Fact]
     public async Task OnConnected_SubscribesToGroupId_WhenUserHasGroup()
     {
@@ -143,6 +150,7 @@ public class ChatHubTests
             .Which.Should().Be((hubCtx.ConnId, groupId.ToString()));
     }
 
+    // Empty/whitespace messages throw HubException so the SPA shows a validation toast.
     [Fact]
     public async Task SendMessage_ThrowsHubException_OnEmptyContent()
     {
@@ -158,6 +166,7 @@ public class ChatHubTests
         await Assert.ThrowsAsync<HubException>(() => hub.SendMessage("   "));
     }
 
+    // Messages longer than 2000 chars are rejected.
     [Fact]
     public async Task SendMessage_ThrowsHubException_OnTooLongContent()
     {
@@ -173,6 +182,7 @@ public class ChatHubTests
         await Assert.ThrowsAsync<HubException>(() => hub.SendMessage(tooLong));
     }
 
+    // A user without a group cannot send anything.
     [Fact]
     public async Task SendMessage_ThrowsHubException_WhenUserHasNoGroup()
     {
@@ -186,6 +196,7 @@ public class ChatHubTests
         await Assert.ThrowsAsync<HubException>(() => hub.SendMessage("привіт"));
     }
 
+    // Happy path: message is saved to DB and a ReceiveMessage event lands on the group's SignalR room.
     [Fact]
     public async Task SendMessage_PersistsAndBroadcasts_WhenValid()
     {
@@ -210,6 +221,7 @@ public class ChatHubTests
             .Which.Method.Should().Be("ReceiveMessage");
     }
 
+    // @mentions trigger notifications only for users in the same group (others are skipped).
     [Fact]
     public async Task SendMessage_TriggersMentionNotifications_ForGroupMembers()
     {
@@ -234,6 +246,7 @@ public class ChatHubTests
         notif.Sent.Single().UserId.Should().Be(mentionedId, "carl з іншої групи — пропускаємо");
     }
 
+    // @-mentioning yourself does not push a notification to your own inbox.
     [Fact]
     public async Task SendMessage_DoesNotNotifySelf_OnSelfMention()
     {
@@ -252,8 +265,10 @@ public class ChatHubTests
     }
 }
 
+// Tests for NotificationHub: aborts anonymous connections, subscribes authenticated ones to "user:{id}".
 public class NotificationHubTests
 {
+    // A connection without a NameIdentifier claim is aborted before being added to any group.
     [Fact]
     public async Task OnConnected_AbortsWhenNoUserId()
     {
@@ -272,6 +287,7 @@ public class NotificationHubTests
         groups.Added.Should().BeEmpty();
     }
 
+    // Authenticated user is added to SignalR group "user:{userId}" so push notifications can target them.
     [Fact]
     public async Task OnConnected_SubscribesToUserGroup()
     {

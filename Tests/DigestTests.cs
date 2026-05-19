@@ -12,6 +12,7 @@ using System.Security.Claims;
 namespace Tests;
 
 
+// IDigestAIClient fake: returns a canned response and captures the last user prompt for assertions.
 public class FakeDigestAIClient : IDigestAIClient
 {
     public string? LastUserPrompt { get; private set; }
@@ -24,6 +25,7 @@ public class FakeDigestAIClient : IDigestAIClient
     }
 }
 
+// Tests for the AI digest endpoint: input validation, Owner gate, time window, and AI bypass when empty.
 public class DigestTests
 {
     private AppDbContext GetDbContext()
@@ -43,6 +45,7 @@ public class DigestTests
         };
     }
 
+    // Only "hour" and "day" are accepted — anything else returns 400 and never calls the AI.
     [Fact]
     public async Task Generate_ShouldReturnBadRequest_WhenPeriodInvalid()
     {
@@ -65,6 +68,7 @@ public class DigestTests
         ai.LastUserPrompt.Should().BeNull();
     }
 
+    // Non-Owner cannot generate a digest (403); AI is not called.
     [Fact]
     public async Task Generate_ShouldReturnForbid_WhenUserIsNotOwner()
     {
@@ -92,6 +96,7 @@ public class DigestTests
         ai.LastUserPrompt.Should().BeNull();
     }
 
+    // Zero-activity window short-circuits and returns a static "no activity" summary (no LLM call).
     [Fact]
     public async Task Generate_ShouldSkipAI_WhenNoEvents()
     {
@@ -117,6 +122,7 @@ public class DigestTests
             .Should().Contain("не було жодної активності");
     }
 
+    // Happy path: every event-source (materials/assignments/chat) ends up in the prompt and the LLM summary is returned.
     [Fact]
     public async Task Generate_ShouldPassEventsToAI_AndReturnSummary()
     {
@@ -170,6 +176,7 @@ public class DigestTests
         summary.Should().Be("- Завантажено лекцію\n- Створено завдання");
     }
 
+    // period="hour" excludes events older than 1 hour even if they belong to the same group.
     [Fact]
     public async Task Generate_ShouldRespectTimeWindow()
     {

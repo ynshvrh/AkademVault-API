@@ -13,6 +13,7 @@ using System.Text;
 namespace Tests;
 
 
+// IR2StorageService fake: captures uploaded/deleted keys without touching real R2.
 public class FakeR2StorageService : IR2StorageService
 {
     public List<string> Uploaded { get; } = new();
@@ -34,6 +35,7 @@ public class FakeR2StorageService : IR2StorageService
         => $"https://fake-r2/{key}?ttl={ttl.TotalSeconds}";
 }
 
+// Tests for storage upload/list/delete and comment-tree behaviour.
 public class StorageTests
 {
     private AppDbContext GetDbContext()
@@ -64,6 +66,7 @@ public class StorageTests
         };
     }
 
+    // Extension allow-list rejects .exe upload and does not touch R2.
     [Fact]
     public async Task Upload_ShouldReturnBadRequest_WhenExtensionNotAllowed()
     {
@@ -89,6 +92,7 @@ public class StorageTests
         storage.Uploaded.Should().BeEmpty();
     }
 
+    // ContentType must match the extension — a .pdf uploaded as image/jpeg is rejected.
     [Fact]
     public async Task Upload_ShouldReturnBadRequest_WhenContentTypeMismatch()
     {
@@ -115,6 +119,7 @@ public class StorageTests
         storage.Uploaded.Should().BeEmpty();
     }
 
+    // Happy path: upload pushes to R2 and writes a LectureMaterial row.
     [Fact]
     public async Task Upload_ShouldStoreFile_WhenValid()
     {
@@ -142,6 +147,7 @@ public class StorageTests
         context.LectureMaterials.First().FileName.Should().Be("lec01.pdf");
     }
 
+    // GetMaterials filters by caller's group — other-group materials are not visible.
     [Fact]
     public async Task GetMaterials_ShouldReturnOnlyGroupMaterials()
     {
@@ -181,6 +187,7 @@ public class StorageTests
         materials.First().FileName.Should().Be("наша.pdf");
     }
 
+    // A stranger cannot delete somebody else's material (must be uploader or Owner).
     [Fact]
     public async Task DeleteMaterial_ShouldReturnForbid_WhenNotUploaderOrOwner()
     {
@@ -215,6 +222,7 @@ public class StorageTests
         context.LectureMaterials.Should().HaveCount(1);
     }
 
+    // The original uploader deletes both the DB row and the R2 object.
     [Fact]
     public async Task DeleteMaterial_ShouldRemoveBothFromR2AndDb_WhenUploader()
     {
@@ -248,6 +256,7 @@ public class StorageTests
         context.LectureMaterials.Should().BeEmpty();
     }
 
+    // Replying to a parent comment that belongs to a different material returns 400.
     [Fact]
     public async Task CreateComment_ShouldReturnBadRequest_WhenParentDoesNotBelongToMaterial()
     {
@@ -288,6 +297,7 @@ public class StorageTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // GetComments returns roots with their nested replies attached (server-side tree build).
     [Fact]
     public async Task GetComments_ShouldReturnThreadedTree()
     {

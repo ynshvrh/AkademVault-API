@@ -12,6 +12,7 @@ using System.Security.Claims;
 namespace Tests;
 
 
+// INotificationService fake: records each call so tests can assert on the fan-out behaviour.
 public class FakeNotificationService : INotificationService
 {
     public List<(Guid UserId, NotificationType Type, string Title, string Body, Guid? Related)> Sent { get; } = new();
@@ -30,6 +31,7 @@ public class FakeNotificationService : INotificationService
     }
 }
 
+// Tests for the notification inbox endpoints (list, mark-read, mark-all, delete) and scoping by user.
 public class NotificationTests
 {
     private AppDbContext GetDbContext()
@@ -49,6 +51,7 @@ public class NotificationTests
         };
     }
 
+    // GET /notification returns only notifications owned by the caller plus a correct unreadCount.
     [Fact]
     public async Task GetAll_ShouldReturnOnlyOwnNotifications()
     {
@@ -74,6 +77,7 @@ public class NotificationTests
         unreadCount.Should().Be(1);
     }
 
+    // ?onlyUnread=true filters out already-read notifications.
     [Fact]
     public async Task GetAll_OnlyUnread_FiltersReadNotifications()
     {
@@ -96,6 +100,7 @@ public class NotificationTests
         items.First().Title.Should().Be("Б");
     }
 
+    // MarkRead flips IsRead=true for the caller's own notification.
     [Fact]
     public async Task MarkRead_ShouldFlipIsRead()
     {
@@ -115,6 +120,7 @@ public class NotificationTests
         (await context.Notifications.FindAsync(notifId))!.IsRead.Should().BeTrue();
     }
 
+    // Trying to mark another user's notification as read returns 404 (not 403, to avoid leaking existence).
     [Fact]
     public async Task MarkRead_ShouldReturnNotFound_ForOtherUsersNotification()
     {
@@ -134,6 +140,7 @@ public class NotificationTests
         result.Should().BeOfType<NotFoundObjectResult>();
     }
 
+    // MarkAllRead only touches the caller's unread rows; other users' notifications stay unread.
     [Fact]
     public async Task MarkAllRead_ShouldMarkOnlyOwnUnread()
     {

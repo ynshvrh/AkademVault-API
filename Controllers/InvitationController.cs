@@ -10,6 +10,7 @@ using System.Security.Cryptography;
 
 namespace AkademVault_API.Controllers;
 
+// Personal invitations and short-lived shareable invite links for a group.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -27,6 +28,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Owner-only: sends a personal invitation to a user by username or email and fans out a notification.
     [HttpPost("send")]
     public async Task<IActionResult> Send([FromBody] SendInvitationRequest request)
     {
@@ -74,6 +76,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Returns the caller's pending invitations to render in the invitations inbox.
     [HttpGet("inbox")]
     public async Task<IActionResult> Inbox()
     {
@@ -96,6 +99,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Accepts an invitation and joins the group; rejected if the user is already in another group.
     [HttpPost("{id}/accept")]
     public async Task<IActionResult> Accept(Guid id)
     {
@@ -116,6 +120,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Declines a pending invitation without joining.
     [HttpPost("{id}/decline")]
     public async Task<IActionResult> Decline(Guid id)
     {
@@ -132,6 +137,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Owner-only: mints a shareable invite link valid for the configured TTL.
     [HttpPost("links")]
     public async Task<IActionResult> CreateLink()
     {
@@ -158,6 +164,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Owner-only: lists all invite links of the Owner's group (active + revoked + expired).
     [HttpGet("links")]
     public async Task<IActionResult> ListLinks()
     {
@@ -177,6 +184,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Owner-only: marks an invite link as revoked so further accepts are refused.
     [HttpPost("links/{id}/revoke")]
     public async Task<IActionResult> RevokeLink(Guid id)
     {
@@ -193,6 +201,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Anonymous preview of an invite link so guests can see the group before signing in.
     [HttpGet("links/by-token/{token}/preview")]
     [AllowAnonymous]
     public async Task<IActionResult> PreviewLink(string token)
@@ -216,6 +225,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Joins the caller to the group referenced by the link if it is still valid.
     [HttpPost("links/by-token/{token}/accept")]
     public async Task<IActionResult> AcceptLink(string token)
     {
@@ -236,6 +246,7 @@ public class InvitationController : ControllerBase
     }
 
 
+    // URL-safe base64 of 24 random bytes — used as the opaque invite-link token.
     private static string GenerateToken()
     {
         var bytes = RandomNumberGenerator.GetBytes(24);
@@ -243,6 +254,7 @@ public class InvitationController : ControllerBase
     }
 }
 
+// Request body for POST /invitation/send.
 public class SendInvitationRequest
 {
     [Required(ErrorMessage = "Username або email обов'язкові")]
@@ -250,6 +262,7 @@ public class SendInvitationRequest
     public string UsernameOrEmail { get; set; } = string.Empty;
 }
 
+// Pending-invitation row shown in the inbox.
 public record InvitationDto(
     Guid Id,
     Guid GroupId,
@@ -258,6 +271,7 @@ public record InvitationDto(
     string InvitedByName,
     DateTime CreatedAt);
 
+// Owner-side projection of a shareable invite link.
 public record InviteLinkDto(
     Guid Id,
     string Token,

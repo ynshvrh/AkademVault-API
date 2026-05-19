@@ -3,6 +3,7 @@ using Amazon.S3.Model;
 
 namespace AkademVault_API.Services;
 
+// IR2StorageService implementation backed by an S3-compatible client pointed at Cloudflare R2.
 public class R2StorageService : IR2StorageService
 {
     private readonly IAmazonS3 _s3;
@@ -14,6 +15,7 @@ public class R2StorageService : IR2StorageService
         _bucket = bucket;
     }
 
+    // PutObject with DisablePayloadSigning=true — R2 rejects AWS chunked signing.
     public async Task UploadAsync(string key, Stream content, string contentType, CancellationToken ct = default)
     {
         var request = new PutObjectRequest
@@ -37,6 +39,7 @@ public class R2StorageService : IR2StorageService
         }, ct);
     }
 
+    // Signs a download URL and overrides Content-Disposition so the browser saves with the real filename.
     public string GetPresignedDownloadUrl(string key, string fileName, TimeSpan ttl)
     {
         var request = new GetPreSignedUrlRequest

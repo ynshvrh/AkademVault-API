@@ -1,8 +1,9 @@
 namespace AkademVault_API.Models;
 
-// Статуси заявки: Очікує, Схвалено, Відхилено
+// Lifecycle of a user-initiated join request.
 public enum RequestStatus { Pending, Approved, Rejected }
 
+// User-initiated request to join a group; awaiting Owner's approve/reject decision.
 public class JoinRequest
 {
     public Guid Id { get; set; }
@@ -11,7 +12,7 @@ public class JoinRequest
     public RequestStatus Status { get; set; } = RequestStatus.Pending;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
-   
+
     public Group? Group { get; set; }
     public User? User { get; set; }
 }

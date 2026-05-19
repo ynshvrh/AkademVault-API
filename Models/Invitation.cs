@@ -3,8 +3,10 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Lifecycle of a personal invitation; only Pending entries are actionable in the inbox.
 public enum InvitationStatus { Pending, Accepted, Declined, Expired }
 
+// Owner-issued personal invitation to a specific user, separate from shareable invite links.
 public class Invitation
 {
     public Guid Id { get; set; }

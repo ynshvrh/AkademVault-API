@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Threaded comment on a LectureMaterial; nullable ParentCommentId encodes the reply tree.
 public class MaterialComment
 {
     public Guid Id { get; set; }

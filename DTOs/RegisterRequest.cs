@@ -2,6 +2,7 @@ using System.ComponentModel.DataAnnotations;
 
 namespace AkademVault_API.DTOs;
 
+// Request body for POST /auth/register.
 public class RegisterRequest
 {
     [Required(ErrorMessage = "Email є обов'язковим")]

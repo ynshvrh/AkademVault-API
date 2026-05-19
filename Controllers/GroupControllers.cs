@@ -9,6 +9,7 @@ using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
 
+// Group lifecycle endpoints: create, browse, view-own, leave, and Owner-only kick.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -23,6 +24,7 @@ public class GroupController : ControllerBase
         _codes = codes;
     }
 
+    // Creates a group with a unique short code, sets the caller as Owner, and joins them to it.
     [HttpPost("create")]
     public async Task<IActionResult> CreateGroup([FromBody] CreateGroupRequest request)
     {
@@ -61,6 +63,7 @@ public class GroupController : ControllerBase
     }
 
 
+    // Lists all groups for the join-request UI; optional ILIKE search filter.
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? search = null)
     {
@@ -84,6 +87,7 @@ public class GroupController : ControllerBase
     }
 
 
+    // Returns the caller's current group with the full member roster.
     [HttpGet("mine")]
     public async Task<IActionResult> GetMine()
     {
@@ -111,6 +115,7 @@ public class GroupController : ControllerBase
     }
 
 
+    // Removes the caller from their group; Owner must transfer/delete instead.
     [HttpPost("leave")]
     public async Task<IActionResult> Leave()
     {
@@ -131,6 +136,7 @@ public class GroupController : ControllerBase
     }
 
 
+    // Owner-only: removes a member from the Owner's group.
     [HttpPost("kick/{userId}")]
     public async Task<IActionResult> Kick(Guid userId)
     {
@@ -154,6 +160,7 @@ public class GroupController : ControllerBase
     }
 }
 
+// Request body for POST /group/create.
 public class CreateGroupRequest
 {
     [Required(ErrorMessage = "Назва групи обов'язкова")]
@@ -164,10 +171,13 @@ public class CreateGroupRequest
     public int YearsOfStudy { get; set; } = 4;
 }
 
+// Compact group projection for the browse list.
 public record GroupSummaryDto(Guid Id, string Name, string ShortCode, string OwnerName, int MemberCount, DateTime ExpiryDate);
 
+// Member row used inside GroupDetailsDto.
 public record GroupMemberDto(Guid Id, string Username, bool IsOwner);
 
+// Full group view for the Owner/member UI, including the member roster.
 public record GroupDetailsDto(
     Guid Id,
     string Name,

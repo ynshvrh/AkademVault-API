@@ -12,6 +12,7 @@ using System.Security.Claims;
 namespace Tests;
 
 
+// IScheduleParser fake: returns a pre-set list of entries without touching the AI service.
 public class FakeScheduleParser : IScheduleParser
 {
     public List<ParsedScheduleEntry> NextResult { get; set; } = new();
@@ -20,6 +21,7 @@ public class FakeScheduleParser : IScheduleParser
         => Task.FromResult(NextResult);
 }
 
+// Tests for the schedule CRUD endpoints and the AI Parse/Confirm flow.
 public class ScheduleTests
 {
     private AppDbContext GetDbContext()
@@ -39,6 +41,7 @@ public class ScheduleTests
         };
     }
 
+    // Non-Owner cannot create schedule entries (403).
     [Fact]
     public async Task Create_ShouldReturnForbid_WhenNotOwner()
     {
@@ -55,6 +58,7 @@ public class ScheduleTests
         var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
+    // Owner can create a valid entry and it is persisted.
     [Fact]
     public async Task Create_ShouldSucceed_ForOwner()
     {
@@ -77,6 +81,7 @@ public class ScheduleTests
         (await context.ScheduleEntries.CountAsync()).Should().Be(1);
     }
 
+    // Time-window validation: EndTime ≤ StartTime is rejected with 400.
     [Fact]
     public async Task Create_ShouldReturnBadRequest_WhenEndBeforeStart()
     {
@@ -98,6 +103,7 @@ public class ScheduleTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // GetAll returns only entries that belong to the caller's group.
     [Fact]
     public async Task GetAll_ShouldReturnOnlyGroupEntries()
     {
@@ -133,6 +139,7 @@ public class ScheduleTests
         entries!.First().Title.Should().Be("Своє");
     }
 
+    // Confirm bulk-persists every well-formed entry in one transaction.
     [Fact]
     public async Task Confirm_ShouldBulkInsertEntries()
     {
@@ -158,6 +165,7 @@ public class ScheduleTests
         (await context.ScheduleEntries.CountAsync()).Should().Be(2);
     }
 
+    // Confirm silently drops entries with invalid time windows instead of failing the whole batch.
     [Fact]
     public async Task Confirm_ShouldSkipEntriesWithInvalidTime()
     {
@@ -183,6 +191,7 @@ public class ScheduleTests
         (await context.ScheduleEntries.CountAsync()).Should().Be(1);
     }
 
+    // Non-Owner cannot invoke the AI parse endpoint (403).
     [Fact]
     public async Task Parse_ShouldReturnForbid_WhenNotOwner()
     {
@@ -202,6 +211,7 @@ public class ScheduleTests
         var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
+    // Owner gets back whatever the parser produced (entries are not persisted yet, only previewed).
     [Fact]
     public async Task Parse_ShouldReturnEntries_ForOwner()
     {
@@ -210,7 +220,7 @@ public class ScheduleTests
         {
             NextResult = new List<ParsedScheduleEntry>
             {
-                new("Алгоритми", ScheduleEntryType.Lecture, DayOfWeek.Monday, new TimeOnly(8, 30), new TimeOnly(10, 0), "304", "Іваненко")
+                new("Алгоритми", "Lecture", DayOfWeek.Monday, new TimeOnly(8, 30), new TimeOnly(10, 0), "304", "Іваненко")
             }
         };
         var controller = new ScheduleController(context, parser);
@@ -236,6 +246,7 @@ public class ScheduleTests
         entries!.First().Title.Should().Be("Алгоритми");
     }
 
+    // MIME-type allow-list: octet-stream upload returns 400 without calling the AI.
     [Fact]
     public async Task Parse_ShouldReturnBadRequest_ForDisallowedMime()
     {
@@ -258,6 +269,7 @@ public class ScheduleTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // Delete of an entry that belongs to another group is forbidden even for an Owner.
     [Fact]
     public async Task Delete_ShouldReturnForbid_WhenEntryInAnotherGroup()
     {

@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Metadata for a file uploaded to R2; R2Key is the object's path in the bucket.
 public class LectureMaterial
 {
     public Guid Id { get; set; }

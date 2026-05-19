@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Http;
 
 namespace Tests;
 
+// Tests for the REST messenger endpoints (history + delete); SignalR send/receive lives in SignalRTests.
 public class MessengerTests
 {
     private AppDbContext GetDbContext()
@@ -29,12 +30,13 @@ public class MessengerTests
         };
     }
 
+    // Caller without a group gets 400 when asking for chat history.
     [Fact]
     public async Task GetHistory_ShouldReturnBadRequest_WhenUserHasNoGroup()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var userId = Guid.NewGuid();
 
         context.Users.Add(new User { Id = userId, Username = "samotnyak" });
@@ -49,12 +51,13 @@ public class MessengerTests
         result.Should().BeOfType<BadRequestObjectResult>();
     }
 
+    // History returns only messages from the caller's group.
     [Fact]
     public async Task GetHistory_ShouldReturnOnlyGroupMessages()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var groupId = Guid.NewGuid();
         var userId = Guid.NewGuid();
         var otherUserId = Guid.NewGuid();
@@ -97,12 +100,13 @@ public class MessengerTests
         messages.First().Content.Should().Be("Привіт групі");
     }
 
+    // History is sorted newest-first so the SPA can paginate from the bottom of the list.
     [Fact]
     public async Task GetHistory_ShouldReturnMessagesOrderedByNewestFirst()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var groupId = Guid.NewGuid();
         var userId = Guid.NewGuid();
 
@@ -143,12 +147,13 @@ public class MessengerTests
         messages.First().Id.Should().Be(newer.Id);
     }
 
+    // A stranger (neither sender nor Owner) cannot delete a message.
     [Fact]
     public async Task DeleteMessage_ShouldReturnForbid_WhenUserIsNotSenderOrOwner()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var groupId = Guid.NewGuid();
         var senderId = Guid.NewGuid();
         var strangerId = Guid.NewGuid();
@@ -176,12 +181,13 @@ public class MessengerTests
         var __fr = result.Should().BeOfType<ObjectResult>().Subject; __fr.StatusCode.Should().Be(StatusCodes.Status403Forbidden);
     }
 
+    // The original sender can delete their own message.
     [Fact]
     public async Task DeleteMessage_ShouldReturnOk_WhenUserIsSender()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var groupId = Guid.NewGuid();
         var senderId = Guid.NewGuid();
 
@@ -209,12 +215,13 @@ public class MessengerTests
         context.ChatMessages.Should().BeEmpty();
     }
 
+    // The group Owner can delete any member's message in their group.
     [Fact]
     public async Task DeleteMessage_ShouldReturnOk_WhenUserIsGroupOwner()
     {
 
         var context = GetDbContext();
-        var controller = new MessengerController(context);
+        var controller = new MessengerController(context, new FakeChatHubContext());
         var groupId = Guid.NewGuid();
         var ownerId = Guid.NewGuid();
         var senderId = Guid.NewGuid();

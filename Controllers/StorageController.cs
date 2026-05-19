@@ -6,9 +6,11 @@ using AkademVault_API.Models;
 using AkademVault_API.Services;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
+using Path = System.IO.Path;
 
 namespace AkademVault_API.Controllers;
 
+// Lecture-material storage: upload/list/download/delete files in R2 and threaded comments per material.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -35,6 +37,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Uploads a file to R2 under groups/{groupId}/{materialId}{ext} and notifies the rest of the group.
     [HttpPost("upload")]
     [RequestSizeLimit(26_214_400)]
     public async Task<IActionResult> Upload(IFormFile file)
@@ -109,6 +112,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Lists the caller's group materials with uploader info (newest first).
     [HttpGet("materials")]
     public async Task<IActionResult> GetMaterials()
     {
@@ -136,6 +140,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Returns a 5-minute presigned R2 URL so the SPA can stream the file directly from Cloudflare.
     [HttpGet("materials/{id}/download")]
     public async Task<IActionResult> GetDownloadUrl(Guid id)
     {
@@ -156,6 +161,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Uploader-or-Owner-only: deletes the material from R2 and the DB.
     [HttpDelete("materials/{id}")]
     public async Task<IActionResult> DeleteMaterial(Guid id)
     {
@@ -176,6 +182,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Returns the threaded comment tree for a material (flat fetch → tree built server-side).
     [HttpGet("materials/{id}/comments")]
     public async Task<IActionResult> GetComments(Guid id)
     {
@@ -208,6 +215,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Posts a comment (or reply) and fans out @mention notifications to in-group recipients.
     [HttpPost("materials/{id}/comments")]
     public async Task<IActionResult> CreateComment(Guid id, [FromBody] CreateCommentDto dto)
     {
@@ -247,6 +255,37 @@ public class StorageController : ControllerBase
         _context.MaterialComments.Add(comment);
         await _context.SaveChangesAsync();
 
+
+        // @mention convention shared with ChatHub — keep regex in sync.
+        var usernames = System.Text.RegularExpressions.Regex
+            .Matches(comment.Content, @"@(\w+)")
+            .Select(m => m.Groups[1].Value)
+            .Where(u => !string.Equals(u, user.Username, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (usernames.Count > 0)
+        {
+            var mentioned = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.GroupId == user.GroupId && usernames.Contains(u.Username) && u.Id != userId)
+                .Select(u => u.Id)
+                .ToListAsync();
+
+            if (mentioned.Count > 0)
+            {
+                var snippet = comment.Content.Length > 200
+                    ? comment.Content.Substring(0, 200) + "…"
+                    : comment.Content;
+                await _notifications.NotifyManyAsync(
+                    mentioned,
+                    NotificationType.MentionInComment,
+                    $"{user.Username} згадав вас у коментарі",
+                    snippet,
+                    material.Id);
+            }
+        }
+
         return Ok(new MaterialCommentDto(
             comment.Id,
             comment.ParentCommentId,
@@ -258,6 +297,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Author-or-Owner-only: removes a comment (cascade-deletes its replies via FK).
     [HttpDelete("comments/{commentId}")]
     public async Task<IActionResult> DeleteComment(Guid commentId)
     {
@@ -278,6 +318,7 @@ public class StorageController : ControllerBase
     }
 
 
+    // Rebuilds a flat comment list into a parent→replies tree in one O(n) pass.
     private static List<MaterialCommentDto> BuildTree(List<MaterialCommentDto> flat)
     {
         var byId = flat.ToDictionary(c => c.Id);
@@ -295,6 +336,7 @@ public class StorageController : ControllerBase
     }
 }
 
+// Material row returned by GET /storage/materials.
 public record LectureMaterialDto(
     Guid Id,
     string FileName,
@@ -304,6 +346,7 @@ public record LectureMaterialDto(
     string UploaderName,
     DateTime UploadedAt);
 
+// Recursive comment node used by GET /storage/materials/{id}/comments.
 public record MaterialCommentDto(
     Guid Id,
     Guid? ParentCommentId,
@@ -313,6 +356,7 @@ public record MaterialCommentDto(
     DateTime CreatedAt,
     List<MaterialCommentDto> Replies);
 
+// Request body for POST /storage/materials/{id}/comments.
 public record CreateCommentDto(
     [Required(ErrorMessage = "Текст коментаря обов'язковий")]
     [StringLength(2000, MinimumLength = 1, ErrorMessage = "Коментар має бути від 1 до 2000 символів")]

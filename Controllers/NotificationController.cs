@@ -7,6 +7,7 @@ using System.Security.Claims;
 
 namespace AkademVault_API.Controllers;
 
+// Per-user notification inbox: list, mark-read (single/all), delete.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
@@ -17,6 +18,7 @@ public class NotificationController : ControllerBase
     public NotificationController(AppDbContext context) => _context = context;
 
 
+    // Returns the caller's notifications (newest first) plus the unread count for the bell badge.
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] bool onlyUnread = false, [FromQuery] int limit = 50)
     {
@@ -47,6 +49,7 @@ public class NotificationController : ControllerBase
     }
 
 
+    // Marks one notification as read (no-op if already read).
     [HttpPost("{id}/read")]
     public async Task<IActionResult> MarkRead(Guid id)
     {
@@ -63,6 +66,7 @@ public class NotificationController : ControllerBase
     }
 
 
+    // Bulk-marks every unread notification of the caller as read.
     [HttpPost("read-all")]
     public async Task<IActionResult> MarkAllRead()
     {
@@ -75,6 +79,7 @@ public class NotificationController : ControllerBase
     }
 
 
+    // Deletes a single notification owned by the caller.
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(Guid id)
     {
@@ -88,6 +93,7 @@ public class NotificationController : ControllerBase
     }
 }
 
+// Notification row returned by GET /notification.
 public record NotificationDto(
     Guid Id,
     string Type,

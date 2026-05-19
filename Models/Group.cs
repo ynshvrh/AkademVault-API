@@ -1,8 +1,9 @@
 using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema; 
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Tenant unit of the app; OwnerId designates the староста with elevated permissions.
 public class Group
 {
     public Guid Id { get; set; }
@@ -20,9 +21,9 @@ public class Group
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     [Required]
-    public DateTime ExpiryDate { get; set; } 
+    public DateTime ExpiryDate { get; set; }
 
-   
+
     [Required]
     public Guid OwnerId { get; set; }
 
@@ -30,6 +31,6 @@ public class Group
     [ForeignKey("OwnerId")]
     public User? Owner { get; set; }
 
-   
+
     public ICollection<User> Members { get; set; } = new List<User>();
 }

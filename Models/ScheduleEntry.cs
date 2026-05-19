@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Class type used by the schedule; AI parser maps Ukrainian terms to these English values.
 public enum ScheduleEntryType
 {
     Lecture = 1,
@@ -12,6 +13,7 @@ public enum ScheduleEntryType
     Other = 5
 }
 
+// One recurring weekly slot in the group's timetable (e.g. "Monday 09:00-10:30 Lecture, room 305").
 public class ScheduleEntry
 {
     public Guid Id { get; set; }

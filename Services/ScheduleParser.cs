@@ -3,9 +3,11 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using AkademVault_API.Models;
 using ClosedXML.Excel;
+using Path = System.IO.Path;
 
 namespace AkademVault_API.Services;
 
+// Turns user-uploaded files (XLSX / image / PDF) into normalised ParsedScheduleEntry rows via the AI client.
 public class ScheduleParser : IScheduleParser
 {
     private readonly IMultimodalAIClient _ai;
@@ -17,11 +19,48 @@ public class ScheduleParser : IScheduleParser
         "\"dayOfWeek\":\"Monday|Tuesday|...|Sunday\"," +
         "\"startTime\":\"HH:mm\",\"endTime\":\"HH:mm\"," +
         "\"location\":\"...|null\",\"teacher\":\"...|null\"}]. " +
+        "ПРАВИЛА КОНВЕРТАЦІЇ:\n" +
+        "- type: Лекція/Лекция → Lecture; Лабораторна/Лаба/Лабораторная/Лаб → Lab; " +
+        "Семінар/Семинар → Seminar; Практика/Практ/Практичне → Practice; інше → Other. " +
+        "Завжди повертай тільки АНГЛІЙСЬКОЮ.\n" +
+        "- dayOfWeek: Понеділок/Пн → Monday; Вівторок/Вт → Tuesday; Середа/Ср → Wednesday; " +
+        "Четвер/Чт → Thursday; П'ятниця/Пт → Friday; Субота/Сб → Saturday; Неділя/Нд → Sunday. " +
+        "Завжди ТІЛЬКИ англійською.\n" +
         "Якщо неможливо визначити поле — використовуй null. " +
         "Якщо неможливо нічого витягти — поверни порожній масив [].";
 
+    // Local fallback maps in case the AI still emits Ukrainian forms despite the prompt.
+    private static readonly Dictionary<string, ScheduleEntryType> UaTypeMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Лекція"] = ScheduleEntryType.Lecture,
+        ["Лекция"] = ScheduleEntryType.Lecture,
+        ["Лек"] = ScheduleEntryType.Lecture,
+        ["Лабораторна"] = ScheduleEntryType.Lab,
+        ["Лабораторная"] = ScheduleEntryType.Lab,
+        ["Лаба"] = ScheduleEntryType.Lab,
+        ["Лаб"] = ScheduleEntryType.Lab,
+        ["Семінар"] = ScheduleEntryType.Seminar,
+        ["Семинар"] = ScheduleEntryType.Seminar,
+        ["Сем"] = ScheduleEntryType.Seminar,
+        ["Практика"] = ScheduleEntryType.Practice,
+        ["Практичне"] = ScheduleEntryType.Practice,
+        ["Практ"] = ScheduleEntryType.Practice,
+    };
+
+    private static readonly Dictionary<string, DayOfWeek> UaDayMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["Понеділок"] = DayOfWeek.Monday,   ["Пн"] = DayOfWeek.Monday,
+        ["Вівторок"]  = DayOfWeek.Tuesday,  ["Вт"] = DayOfWeek.Tuesday,
+        ["Середа"]    = DayOfWeek.Wednesday,["Ср"] = DayOfWeek.Wednesday,
+        ["Четвер"]    = DayOfWeek.Thursday, ["Чт"] = DayOfWeek.Thursday,
+        ["Пʼятниця"]  = DayOfWeek.Friday,   ["П'ятниця"] = DayOfWeek.Friday, ["Пятница"] = DayOfWeek.Friday, ["Пт"] = DayOfWeek.Friday,
+        ["Субота"]    = DayOfWeek.Saturday, ["Сб"] = DayOfWeek.Saturday,
+        ["Неділя"]    = DayOfWeek.Sunday,   ["Нд"] = DayOfWeek.Sunday,
+    };
+
     public ScheduleParser(IMultimodalAIClient ai) => _ai = ai;
 
+    // Routes XLSX to a text-prompt path and image/PDF to the multimodal path, then parses the JSON.
     public async Task<List<ParsedScheduleEntry>> ParseAsync(string fileName, string contentType, byte[] data, CancellationToken ct = default)
     {
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
@@ -49,6 +88,7 @@ public class ScheduleParser : IScheduleParser
         return ParseAIJson(aiResponse);
     }
 
+    // Flattens every used row of every XLSX worksheet into a "cell | cell | …" plain-text prompt.
     private static string ExtractXlsxAsText(byte[] data)
     {
         using var stream = new MemoryStream(data);
@@ -73,6 +113,7 @@ public class ScheduleParser : IScheduleParser
         return sb.ToString();
     }
 
+    // Tolerantly parses the AI's JSON array — silently drops malformed entries instead of throwing.
     private static List<ParsedScheduleEntry> ParseAIJson(string aiResponse)
     {
         var jsonText = ExtractJsonArray(aiResponse);
@@ -90,8 +131,13 @@ public class ScheduleParser : IScheduleParser
                 var title = GetStringOrNull(el, "title");
                 if (string.IsNullOrWhiteSpace(title)) continue;
 
-                var type = ParseEnum<ScheduleEntryType>(GetStringOrNull(el, "type") ?? "Other") ?? ScheduleEntryType.Other;
-                var day = ParseEnum<DayOfWeek>(GetStringOrNull(el, "dayOfWeek") ?? "");
+                var typeRaw = GetStringOrNull(el, "type") ?? "Other";
+                var type = ParseEnum<ScheduleEntryType>(typeRaw)
+                           ?? (UaTypeMap.TryGetValue(typeRaw.Trim(), out var t) ? t : ScheduleEntryType.Other);
+
+                var dayRaw = GetStringOrNull(el, "dayOfWeek") ?? "";
+                DayOfWeek? day = ParseEnum<DayOfWeek>(dayRaw)
+                                 ?? (UaDayMap.TryGetValue(dayRaw.Trim(), out var d) ? (DayOfWeek?)d : null);
                 var start = ParseTime(GetStringOrNull(el, "startTime"));
                 var end = ParseTime(GetStringOrNull(el, "endTime"));
 
@@ -99,7 +145,7 @@ public class ScheduleParser : IScheduleParser
 
                 result.Add(new ParsedScheduleEntry(
                     title!.Trim(),
-                    type,
+                    type.ToString(),
                     day.Value,
                     start.Value,
                     end.Value,
@@ -116,6 +162,7 @@ public class ScheduleParser : IScheduleParser
         return result;
     }
 
+    // Strips any prose around the JSON array the model returned.
     private static string? ExtractJsonArray(string raw)
     {
         var match = Regex.Match(raw, @"\[[\s\S]*\]");

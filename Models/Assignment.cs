@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
+// Owner-authored homework/task with a due date, visible to the whole group.
 public class Assignment
 {
     public Guid Id { get; set; }
@@ -18,7 +19,7 @@ public class Assignment
 
     [Required]
     public Guid GroupId { get; set; }
-    
+
     [ForeignKey("GroupId")]
     public Group? Group { get; set; }
 

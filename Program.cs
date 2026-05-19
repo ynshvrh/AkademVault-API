@@ -57,6 +57,7 @@ else
     Console.WriteLine($"✅ R2 endpoint: {r2Endpoint}, bucket: {r2Bucket}");
 }
 
+// S3 client points at Cloudflare R2; ForcePathStyle is required for R2's bucket-in-path URLs.
 builder.Services.AddSingleton<IAmazonS3>(_ =>
 {
     var credentials = new BasicAWSCredentials(r2AccessKey, r2SecretKey);
@@ -104,6 +105,12 @@ builder.Services.AddTransient<IMultimodalAIClient>(sp => sp.GetRequiredService<O
 builder.Services.AddTransient<IScheduleParser, ScheduleParser>();
 
 
+var appBaseUrl = Environment.GetEnvironmentVariable("APP_BASE_URL");
+if (!string.IsNullOrEmpty(appBaseUrl))
+{
+    Console.WriteLine($"✅ APP_BASE_URL: {appBaseUrl}");
+}
+
 var corsOriginsRaw = Environment.GetEnvironmentVariable("CORS_ALLOWED_ORIGINS") ?? "http://localhost:4200";
 var corsOrigins = corsOriginsRaw
     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -130,6 +137,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.Cookie.SameSite = SameSiteMode.Lax;
 
+        // SPA expects JSON 401 on unauth instead of a 302 redirect.
         options.Events.OnRedirectToLogin = context =>
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -160,6 +168,15 @@ builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(optio
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// IHttpContextAccessor lets GraphQL resolvers read the cookie-authenticated ClaimsPrincipal.
+builder.Services.AddHttpContextAccessor();
+
+// Read-only GraphQL module — co-exists with REST under /graphql; reuses the same cookie auth + EF context.
+builder.Services
+    .AddGraphQLServer()
+    .AddAuthorization()
+    .AddQueryType<AkademVault_API.GraphQL.Query>();
+
 var app = builder.Build();
 
 
@@ -174,6 +191,7 @@ else
 }
 
 
+// Global JSON exception handler so the SPA always receives a structured 500 body.
 app.UseExceptionHandler(errorApp =>
 {
     errorApp.Run(async context =>
@@ -198,9 +216,47 @@ app.UseCors("AngularPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
 
+// CSRF guard for /graphql — MVC's JsonAntiforgeryFilter doesn't apply to GraphQL's non-MVC endpoint,
+// so we replicate the same validation (X-XSRF-TOKEN header vs HttpOnly antiforgery cookie) here.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/graphql"))
+    {
+        var method = context.Request.Method;
+        var isSafe = HttpMethods.IsGet(method)
+            || HttpMethods.IsHead(method)
+            || HttpMethods.IsOptions(method)
+            || HttpMethods.IsTrace(method);
+
+        if (!isSafe)
+        {
+            try
+            {
+                await context.RequestServices
+                    .GetRequiredService<IAntiforgery>()
+                    .ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "application/json";
+                await context.Response.WriteAsJsonAsync(new
+                {
+                    message = "CSRF-токен відсутній або недійсний. Оновіть сторінку.",
+                    code = "antiforgery_failed"
+                });
+                return;
+            }
+        }
+    }
+
+    await next();
+});
+
 
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");
 app.MapHub<NotificationHub>("/hubs/notifications");
+app.MapGraphQL("/graphql");
 
 app.Run();

@@ -35,7 +35,7 @@ public class AuthProfileTests
     public async Task UpdateProfile_ChangesUsername_WhenAvailable()
     {
         var ctx = GetDbContext();
-        var ctrl = new AuthController(ctx, new FakeAntiforgery());
+        var ctrl = new AuthController(ctx);
         var userId = Guid.NewGuid();
         ctx.Users.Add(new User { Id = userId, Username = "oldname", Email = "u@x.ua", PasswordHash = "h" });
         await ctx.SaveChangesAsync();
@@ -52,7 +52,7 @@ public class AuthProfileTests
     public async Task UpdateProfile_Rejects_WhenUsernameTaken()
     {
         var ctx = GetDbContext();
-        var ctrl = new AuthController(ctx, new FakeAntiforgery());
+        var ctrl = new AuthController(ctx);
         var userId = Guid.NewGuid();
         ctx.Users.Add(new User { Id = userId, Username = "me", Email = "m@x.ua", PasswordHash = "h" });
         ctx.Users.Add(new User { Id = Guid.NewGuid(), Username = "taken", Email = "t@x.ua", PasswordHash = "h" });
@@ -70,7 +70,7 @@ public class AuthProfileTests
     public async Task ChangePassword_Succeeds_WithCorrectCurrent()
     {
         var ctx = GetDbContext();
-        var ctrl = new AuthController(ctx, new FakeAntiforgery());
+        var ctrl = new AuthController(ctx);
         var userId = Guid.NewGuid();
         var oldHash = BCrypt.Net.BCrypt.HashPassword("OldP@ss1");
         ctx.Users.Add(new User { Id = userId, Username = "u", Email = "u@x.ua", PasswordHash = oldHash });
@@ -94,7 +94,7 @@ public class AuthProfileTests
     public async Task ChangePassword_Rejects_WithWrongCurrent()
     {
         var ctx = GetDbContext();
-        var ctrl = new AuthController(ctx, new FakeAntiforgery());
+        var ctrl = new AuthController(ctx);
         var userId = Guid.NewGuid();
         var oldHash = BCrypt.Net.BCrypt.HashPassword("OldP@ss1");
         ctx.Users.Add(new User { Id = userId, Username = "u", Email = "u@x.ua", PasswordHash = oldHash });

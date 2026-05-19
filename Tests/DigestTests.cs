@@ -45,29 +45,6 @@ public class DigestTests
         };
     }
 
-    // Only "hour" and "day" are accepted — anything else returns 400 and never calls the AI.
-    [Fact]
-    public async Task Generate_ShouldReturnBadRequest_WhenPeriodInvalid()
-    {
-
-        var context = GetDbContext();
-        var ai = new FakeDigestAIClient();
-        var controller = new DigestController(context, ai, new FakeNotificationService());
-
-        var ownerId = Guid.NewGuid();
-        context.Groups.Add(new Group { Id = Guid.NewGuid(), Name = "КН-31", OwnerId = ownerId });
-        await context.SaveChangesAsync();
-
-        SetUser(controller, ownerId);
-
-
-        var result = await controller.Generate("week");
-
-
-        result.Should().BeOfType<BadRequestObjectResult>();
-        ai.LastUserPrompt.Should().BeNull();
-    }
-
     // Non-Owner cannot generate a digest (403); AI is not called.
     [Fact]
     public async Task Generate_ShouldReturnForbid_WhenUserIsNotOwner()
@@ -88,7 +65,7 @@ public class DigestTests
         SetUser(controller, memberId);
 
 
-        var result = await controller.Generate("day");
+        var result = await controller.Generate();
 
 
         var objectResult = result.Should().BeOfType<ObjectResult>().Subject;
@@ -113,7 +90,7 @@ public class DigestTests
         SetUser(controller, ownerId);
 
 
-        var result = await controller.Generate("day");
+        var result = await controller.Generate();
 
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
@@ -163,7 +140,7 @@ public class DigestTests
         SetUser(controller, ownerId);
 
 
-        var result = await controller.Generate("day");
+        var result = await controller.Generate();
 
 
         var ok = result.Should().BeOfType<OkObjectResult>().Subject;
@@ -172,11 +149,12 @@ public class DigestTests
         ai.LastUserPrompt.Should().Contain("Лаба 5");
         ai.LastUserPrompt.Should().Contain("Хто вже здав лабу?");
 
+        // Server-side sanitiser normalises «- » list markers to «• ».
         var summary = ok.Value!.GetType().GetProperty("summary")!.GetValue(ok.Value)!.ToString();
-        summary.Should().Be("- Завантажено лекцію\n- Створено завдання");
+        summary.Should().Be("• Завантажено лекцію\n• Створено завдання");
     }
 
-    // period="hour" excludes events older than 1 hour even if they belong to the same group.
+    // 24h window excludes events older than 24 hours even if they belong to the same group.
     [Fact]
     public async Task Generate_ShouldRespectTimeWindow()
     {
@@ -197,7 +175,7 @@ public class DigestTests
         {
             Id = Guid.NewGuid(), GroupId = groupId, UploaderId = ownerId,
             FileName = "недавня.pdf", ContentType = "application/pdf", R2Key = "k1",
-            UploadedAt = now.AddMinutes(-30)
+            UploadedAt = now.AddHours(-6)
         });
 
 
@@ -205,7 +183,7 @@ public class DigestTests
         {
             Id = Guid.NewGuid(), GroupId = groupId, UploaderId = ownerId,
             FileName = "стара.pdf", ContentType = "application/pdf", R2Key = "k2",
-            UploadedAt = now.AddHours(-3)
+            UploadedAt = now.AddDays(-3)
         });
 
         await context.SaveChangesAsync();
@@ -213,12 +191,23 @@ public class DigestTests
         SetUser(controller, ownerId);
 
 
-        var result = await controller.Generate("hour");
+        var result = await controller.Generate();
 
 
         result.Should().BeOfType<OkObjectResult>();
         ai.LastUserPrompt.Should().NotBeNull();
         ai.LastUserPrompt!.Should().Contain("недавня.pdf");
         ai.LastUserPrompt.Should().NotContain("стара.pdf");
+    }
+
+    // Sanitiser strips bold/italic markers and rewrites bullet lines to a unified «• » prefix.
+    [Theory]
+    [InlineData("- Перший пункт\n- Другий пункт", "• Перший пункт\n• Другий пункт")]
+    [InlineData("**Жирне** і *курсив*", "Жирне і курсив")]
+    [InlineData("# Заголовок\n* пункт", "Заголовок\n• пункт")]
+    [InlineData("Текст з `кодом` всередині", "Текст з кодом всередині")]
+    public void SanitizeSummary_ShouldStripMarkdownAndNormaliseBullets(string input, string expected)
+    {
+        DigestController.SanitizeSummary(input).Should().Be(expected);
     }
 }

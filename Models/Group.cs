@@ -33,4 +33,12 @@ public class Group
 
 
     public ICollection<User> Members { get; set; } = new List<User>();
+
+
+    // Cached last AI digest — read by the dashboard for the Owner so we don't re-call the LLM on every page load.
+    public string? LastDigestSummary { get; set; }
+    public DateTime? LastDigestGeneratedAt { get; set; }
+    public int? LastDigestMaterialCount { get; set; }
+    public int? LastDigestAssignmentCount { get; set; }
+    public int? LastDigestMessageCount { get; set; }
 }

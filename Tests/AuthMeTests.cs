@@ -48,7 +48,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context, new FakeAntiforgery());
+        var controller = new AuthController(context);
         var userId = Guid.NewGuid();
 
         SetUser(controller, userId);
@@ -66,7 +66,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context, new FakeAntiforgery());
+        var controller = new AuthController(context);
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 
@@ -93,7 +93,7 @@ public class AuthMeTests
     {
 
         var context = GetDbContext();
-        var controller = new AuthController(context, new FakeAntiforgery());
+        var controller = new AuthController(context);
         var userId = Guid.NewGuid();
         var groupId = Guid.NewGuid();
 

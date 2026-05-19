@@ -6,24 +6,34 @@ using AkademVault_API.Models;
 using AkademVault_API.Services;
 using System.Security.Claims;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AkademVault_API.Controllers;
 
-// Owner-only AI digest: collects recent group activity and asks the LLM to summarise it in Ukrainian.
+// Owner-only AI digest: collects the last 24h of group activity and asks the LLM to summarise it in Ukrainian.
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
 public class DigestController : ControllerBase
 {
+    private static readonly TimeSpan DigestWindow = TimeSpan.FromDays(1);
+
     private readonly AppDbContext _context;
     private readonly IDigestAIClient _ai;
     private readonly INotificationService _notifications;
 
+    // Tightened prompt: bans markdown markup that was leaking into the UI as raw `**…**`,
+    // and pins roles to the actual app vocabulary (the model was inventing «викладач»).
     private const string SystemPrompt =
-        "Ти асистент академічної групи. Тобі дають журнал подій за певний період " +
-        "(нові матеріали, зміни розкладу, чат). Зроби короткий дайджест українською мовою: " +
-        "3-6 пунктів, без води, без вступів і висновків, тільки факти що сталися. " +
-        "Якщо подій немає — так і скажи одним реченням.";
+        "Ти асистент академічної групи. Тобі дають журнал подій за останні 24 години " +
+        "(нові матеріали, нові завдання, повідомлення в чаті). " +
+        "Сформуй короткий дайджест українською мовою: 3-6 фактів, без води, без вступів і висновків. " +
+        "ФОРМАТ: лише чистий текст без будь-якої markdown-розмітки. " +
+        "Не використовуй * ** _ # ` — жодних зірочок, підкреслень, решіток, бек-тіків. " +
+        "Кожен пункт починай з символу «• » (буллет + пробіл) і пиши з нового рядка. " +
+        "РОЛІ: в системі є лише «староста» (Owner групи) та «одногрупники» (студенти-учасники). " +
+        "Викладачів, вчителів, професорів, кураторів у системі НЕМАЄ — НЕ вживай ці слова взагалі. " +
+        "Якщо подій немає — відповідай одним реченням про відсутність активності.";
 
     public DigestController(AppDbContext context, IDigestAIClient ai, INotificationService notifications)
     {
@@ -33,27 +43,46 @@ public class DigestController : ControllerBase
     }
 
 
-    // Generates a summary over the last hour/day of group activity and fans out a notification to members.
-    [HttpGet]
-    public async Task<IActionResult> Generate([FromQuery] string period = "day", CancellationToken ct = default)
+    // Returns the most recent cached digest for the caller's group (Owner-only).
+    // Read-only — does NOT call the LLM. Used by the dashboard inline block.
+    [HttpGet("latest")]
+    public async Task<IActionResult> Latest(CancellationToken ct = default)
     {
-        TimeSpan window = period.ToLowerInvariant() switch
-        {
-            "hour" => TimeSpan.FromHours(1),
-            "day"  => TimeSpan.FromDays(1),
-            _ => TimeSpan.Zero
-        };
-
-        if (window == TimeSpan.Zero)
-            return BadRequest(new { message = "Параметр period має бути 'hour' або 'day'." });
-
         var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var group = await _context.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.OwnerId == userId, ct);
+        var group = await _context.Groups.AsNoTracking()
+            .FirstOrDefaultAsync(g => g.OwnerId == userId, ct);
+
+        if (group == null)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може переглядати дайджест." });
+
+        if (string.IsNullOrEmpty(group.LastDigestSummary) || group.LastDigestGeneratedAt == null)
+            return NoContent();
+
+        return Ok(new
+        {
+            generatedAt = group.LastDigestGeneratedAt,
+            counts = new
+            {
+                materials = group.LastDigestMaterialCount ?? 0,
+                assignments = group.LastDigestAssignmentCount ?? 0,
+                messages = group.LastDigestMessageCount ?? 0
+            },
+            summary = group.LastDigestSummary
+        });
+    }
+
+    // Generates a summary over the last 24h of group activity, persists it to the group row
+    // (so the dashboard can read it without re-prompting the LLM) and fans out a notification.
+    [HttpGet]
+    public async Task<IActionResult> Generate(CancellationToken ct = default)
+    {
+        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var group = await _context.Groups.FirstOrDefaultAsync(g => g.OwnerId == userId, ct);
 
         if (group == null)
             return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може запускати дайджест." });
 
-        var since = DateTime.UtcNow - window;
+        var since = DateTime.UtcNow - DigestWindow;
 
         var materials = await _context.LectureMaterials
             .AsNoTracking()
@@ -86,35 +115,52 @@ public class DigestController : ControllerBase
         // Skip the LLM round-trip when the window had no activity.
         if (counts.materials == 0 && counts.assignments == 0 && counts.messages == 0)
         {
+            var emptyAt = DateTime.UtcNow;
+            const string emptySummary = "За цей період у групі не було жодної активності.";
+            group.LastDigestSummary = emptySummary;
+            group.LastDigestGeneratedAt = emptyAt;
+            group.LastDigestMaterialCount = 0;
+            group.LastDigestAssignmentCount = 0;
+            group.LastDigestMessageCount = 0;
+            await _context.SaveChangesAsync(ct);
+
             return Ok(new
             {
-                period,
-                generatedAt = DateTime.UtcNow,
+                generatedAt = emptyAt,
                 counts,
-                summary = "За цей період у групі не було жодної активності."
+                summary = emptySummary
             });
         }
 
         var prompt = new StringBuilder();
-        prompt.AppendLine($"Період: останні {(period == "hour" ? "1 година" : "24 години")} (з {since:yyyy-MM-dd HH:mm} UTC).");
+        prompt.AppendLine($"Період: останні 24 години (з {since:yyyy-MM-dd HH:mm} UTC).");
         prompt.AppendLine($"Група: {group.Name}.");
         prompt.AppendLine();
 
-        prompt.AppendLine($"## Нові матеріали ({materials.Count}):");
+        prompt.AppendLine($"Нові матеріали ({materials.Count}):");
         foreach (var m in materials)
-            prompt.AppendLine($"- {m.FileName} (від {m.Uploader}, {m.UploadedAt:HH:mm})");
+            prompt.AppendLine($"- {m.FileName} (завантажив {m.Uploader}, {m.UploadedAt:HH:mm})");
         prompt.AppendLine();
 
-        prompt.AppendLine($"## Нові завдання ({assignments.Count}):");
+        prompt.AppendLine($"Нові завдання ({assignments.Count}):");
         foreach (var a in assignments)
             prompt.AppendLine($"- {a.Title}: {a.Description} (дедлайн {a.DueDate:yyyy-MM-dd})");
         prompt.AppendLine();
 
-        prompt.AppendLine($"## Чат ({messages.Count} повідомлень):");
+        prompt.AppendLine($"Повідомлення в чаті ({messages.Count}):");
         foreach (var m in messages)
             prompt.AppendLine($"[{m.SentAt:HH:mm}] {m.Sender}: {m.Content}");
 
-        var summary = await _ai.SummarizeAsync(SystemPrompt, prompt.ToString(), ct);
+        var rawSummary = await _ai.SummarizeAsync(SystemPrompt, prompt.ToString(), ct);
+        var summary = SanitizeSummary(rawSummary);
+
+        var generatedAt = DateTime.UtcNow;
+        group.LastDigestSummary = summary;
+        group.LastDigestGeneratedAt = generatedAt;
+        group.LastDigestMaterialCount = counts.materials;
+        group.LastDigestAssignmentCount = counts.assignments;
+        group.LastDigestMessageCount = counts.messages;
+        await _context.SaveChangesAsync(ct);
 
 
         var recipients = await _context.Users
@@ -128,17 +174,46 @@ public class DigestController : ControllerBase
             await _notifications.NotifyManyAsync(
                 recipients,
                 NotificationType.DigestPublished,
-                $"Новий дайджест від {(period == "hour" ? "години" : "доби")}",
-                $"Староста згенерував підсумок активності групи.",
+                "Новий дайджест за добу",
+                "Староста згенерував підсумок активності групи.",
                 ct: ct);
         }
 
         return Ok(new
         {
-            period,
-            generatedAt = DateTime.UtcNow,
+            generatedAt,
             counts,
             summary
         });
+    }
+
+    // Server-side safety net: strips markdown markers the LLM may still emit despite the prompt,
+    // and normalises every list marker to «• » so the front-end can render plain whitespace-pre-wrap text.
+    private static readonly Regex BoldMarkers = new(@"(\*\*|__)(.+?)\1", RegexOptions.Compiled);
+    private static readonly Regex ItalicMarkers = new(@"(?<!\w)([*_])([^*_\n]+?)\1(?!\w)", RegexOptions.Compiled);
+    private static readonly Regex LeadingHeading = new(@"^\s{0,3}#{1,6}\s+", RegexOptions.Compiled);
+    private static readonly Regex LeadingBullet = new(@"^\s{0,3}([-*+])\s+", RegexOptions.Compiled);
+    private static readonly Regex Backticks = new(@"`+", RegexOptions.Compiled);
+    private static readonly Regex MultipleBlankLines = new(@"\n{3,}", RegexOptions.Compiled);
+
+    public static string SanitizeSummary(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return string.Empty;
+
+        var text = input.Replace("\r\n", "\n").Trim();
+        text = BoldMarkers.Replace(text, "$2");
+        text = ItalicMarkers.Replace(text, "$2");
+        text = Backticks.Replace(text, string.Empty);
+
+        var lines = text.Split('\n')
+            .Select(line =>
+            {
+                var trimmed = LeadingHeading.Replace(line, string.Empty);
+                trimmed = LeadingBullet.Replace(trimmed, "• ");
+                return trimmed.TrimEnd();
+            });
+
+        var joined = string.Join('\n', lines);
+        return MultipleBlankLines.Replace(joined, "\n\n").Trim();
     }
 }

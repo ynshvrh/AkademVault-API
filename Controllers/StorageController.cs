@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.Models;
 using AkademVault_API.Services;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Webp;
 using System.ComponentModel.DataAnnotations;
 using System.Security.Claims;
 using Path = System.IO.Path;
@@ -22,12 +24,21 @@ public class StorageController : ControllerBase
 
     private static readonly long MaxFileSize = 25 * 1024 * 1024;
 
-    private static readonly Dictionary<string, string> AllowedTypes = new(StringComparer.OrdinalIgnoreCase)
+    // Non-image formats accepted as-is (extension → expected MIME).
+    private static readonly Dictionary<string, string> AllowedDocumentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".pdf"]  = "application/pdf",
         [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        [".webp"] = "image/webp"
     };
+
+    // Image MIME types we accept on input; ALL of these are converted to webp before being stored on R2.
+    private static readonly HashSet<string> AcceptedImageMimes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/bmp", "image/tiff"
+    };
+
+    private const string WebpMime = "image/webp";
+    private const int WebpQuality = 80;
 
     public StorageController(AppDbContext context, IR2StorageService storage, INotificationService notifications)
     {
@@ -38,9 +49,10 @@ public class StorageController : ControllerBase
 
 
     // Uploads a file to R2 under groups/{groupId}/{materialId}{ext} and notifies the rest of the group.
+    // Documents (.pdf/.docx) are stored as-is; images of any accepted format are transcoded to webp first.
     [HttpPost("upload")]
     [RequestSizeLimit(26_214_400)]
-    public async Task<IActionResult> Upload(IFormFile file)
+    public async Task<IActionResult> Upload(IFormFile file, CancellationToken ct = default)
     {
         if (file == null || file.Length == 0)
             return BadRequest(new { message = "Файл не надано." });
@@ -48,67 +60,121 @@ public class StorageController : ControllerBase
         if (file.Length > MaxFileSize)
             return BadRequest(new { message = "Файл перевищує ліміт 25 MB." });
 
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedTypes.TryGetValue(extension, out var expectedContentType))
-            return BadRequest(new { message = "Дозволені формати: .pdf, .docx, .webp" });
+        var originalExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        var originalContentType = file.ContentType ?? string.Empty;
+        var isImage = originalContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
 
-        if (!string.Equals(file.ContentType, expectedContentType, StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new { message = "Тип файлу не відповідає його розширенню." });
+        string storedExtension;
+        string storedContentType;
+        string storedFileName;
+        Stream uploadStream;
+        long storedSize;
+        var disposables = new List<IDisposable>();
 
-        var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
-        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
-
-        if (user?.GroupId == null)
-            return BadRequest(new { message = "Ви не належите до жодної групи." });
-
-        var materialId = Guid.NewGuid();
-        var key = $"groups/{user.GroupId}/{materialId}{extension}";
-
-        await using (var stream = file.OpenReadStream())
+        try
         {
-            await _storage.UploadAsync(key, stream, expectedContentType);
-        }
+            if (isImage)
+            {
+                if (!AcceptedImageMimes.Contains(originalContentType))
+                    return BadRequest(new { message = "Непідтримуваний формат зображення." });
 
-        var material = new LectureMaterial
-        {
-            Id = materialId,
-            GroupId = user.GroupId.Value,
-            UploaderId = userId,
-            FileName = Path.GetFileName(file.FileName),
-            ContentType = expectedContentType,
-            SizeBytes = file.Length,
-            R2Key = key,
-            UploadedAt = DateTime.UtcNow
-        };
+                // Transcode every image (including already-webp uploads, to normalise quality/size).
+                var webpBuffer = new MemoryStream();
+                disposables.Add(webpBuffer);
+                await using (var src = file.OpenReadStream())
+                {
+                    using var image = await Image.LoadAsync(src, ct);
+                    var encoder = new WebpEncoder { Quality = WebpQuality };
+                    await image.SaveAsync(webpBuffer, encoder, ct);
+                }
+                webpBuffer.Position = 0;
+                uploadStream = webpBuffer;
+                storedSize = webpBuffer.Length;
+                storedExtension = ".webp";
+                storedContentType = WebpMime;
+                storedFileName = Path.ChangeExtension(Path.GetFileName(file.FileName), ".webp");
+            }
+            else
+            {
+                if (!AllowedDocumentTypes.TryGetValue(originalExtension, out var expectedContentType))
+                    return BadRequest(new { message = "Дозволені формати: будь-яке зображення, .pdf, .docx" });
 
-        _context.LectureMaterials.Add(material);
-        await _context.SaveChangesAsync();
+                if (!string.Equals(originalContentType, expectedContentType, StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { message = "Тип файлу не відповідає його розширенню." });
 
+                var docStream = file.OpenReadStream();
+                disposables.Add(docStream);
+                uploadStream = docStream;
+                storedSize = file.Length;
+                storedExtension = originalExtension;
+                storedContentType = expectedContentType;
+                storedFileName = Path.GetFileName(file.FileName);
+            }
 
-        var recipients = await _context.Users
-            .AsNoTracking()
-            .Where(u => u.GroupId == user.GroupId && u.Id != userId)
-            .Select(u => u.Id)
-            .ToListAsync();
+            var userId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
 
-        if (recipients.Count > 0)
-        {
-            await _notifications.NotifyManyAsync(
-                recipients,
-                NotificationType.MaterialUploaded,
-                $"{user.Username} завантажив новий матеріал",
+            if (user?.GroupId == null)
+                return BadRequest(new { message = "Ви не належите до жодної групи." });
+
+            var materialId = Guid.NewGuid();
+            var key = $"groups/{user.GroupId}/{materialId}{storedExtension}";
+
+            await _storage.UploadAsync(key, uploadStream, storedContentType);
+
+            var material = new LectureMaterial
+            {
+                Id = materialId,
+                GroupId = user.GroupId.Value,
+                UploaderId = userId,
+                FileName = storedFileName,
+                ContentType = storedContentType,
+                SizeBytes = storedSize,
+                R2Key = key,
+                UploadedAt = DateTime.UtcNow
+            };
+
+            _context.LectureMaterials.Add(material);
+            await _context.SaveChangesAsync(ct);
+
+            var recipients = await _context.Users
+                .AsNoTracking()
+                .Where(u => u.GroupId == user.GroupId && u.Id != userId)
+                .Select(u => u.Id)
+                .ToListAsync(ct);
+
+            if (recipients.Count > 0)
+            {
+                await _notifications.NotifyManyAsync(
+                    recipients,
+                    NotificationType.MaterialUploaded,
+                    $"{user.Username} завантажив новий матеріал",
+                    material.FileName,
+                    material.Id,
+                    ct);
+            }
+
+            return Ok(new LectureMaterialDto(
+                material.Id,
                 material.FileName,
-                material.Id);
+                material.ContentType,
+                material.SizeBytes,
+                userId,
+                user.Username ?? string.Empty,
+                material.UploadedAt));
         }
-
-        return Ok(new
+        catch (UnknownImageFormatException)
         {
-            material.Id,
-            material.FileName,
-            material.ContentType,
-            material.SizeBytes,
-            material.UploadedAt
-        });
+            return BadRequest(new { message = "Файл не розпізнано як зображення." });
+        }
+        catch (InvalidImageContentException)
+        {
+            return BadRequest(new { message = "Зображення пошкоджене або має невідомий формат." });
+        }
+        finally
+        {
+            foreach (var d in disposables) d.Dispose();
+        }
     }
 
 

@@ -235,24 +235,10 @@ public class ErrorBodyFormatTests
         var ctrl = new DigestController(ctx, new FakeDigestAIClient(), new FakeNotificationService());
         SetUser(ctrl, Guid.NewGuid());
 
-        var result = await ctrl.Generate("day");
+        var result = await ctrl.Generate();
 
         ExtractStatus(result).Should().Be(403);
         ExtractMessage((result as ObjectResult)?.Value).Should().Contain("староста");
-    }
-
-    // Digest/Generate 400 for invalid period mentions the "period" parameter name.
-    [Fact]
-    public async Task DigestGenerate_InvalidPeriod_HasJsonMessage()
-    {
-        var ctx = GetDbContext();
-        var ctrl = new DigestController(ctx, new FakeDigestAIClient(), new FakeNotificationService());
-        SetUser(ctrl, Guid.NewGuid());
-
-        var result = await ctrl.Generate("week");
-
-        var bad = result.Should().BeOfType<BadRequestObjectResult>().Subject;
-        ExtractMessage(bad.Value).Should().Contain("period");
     }
 
 

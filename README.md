@@ -8,7 +8,8 @@
 - **PostgreSQL** (Neon) через EF Core 10 + Npgsql
 - **Cloudflare R2** (S3-сумісне сховище, AWS SDK)
 - **OpenRouter** як шлюз до LLM (модель за замовчуванням `anthropic/claude-haiku-4-5`) — для дайджестів та парсингу розкладу
-- Cookie-автентифікація (HttpOnly) + CSRF через antiforgery
+- **SixLabors.ImageSharp** — серверна перекодування завантажених зображень у `.webp`
+- Cookie-автентифікація (HttpOnly, persistent на 30 діб з sliding expiration)
 - BCrypt для паролів, Scalar/Swagger для OpenAPI
 
 ## Можливості
@@ -19,10 +20,10 @@
 - **Requests** — заявки на приєднання до групи з approve/reject
 - **Schedule** — CRUD розкладу + AI-парсинг файлу розкладу (`parse` → `confirm`)
 - **Planner** — завдання/дедлайни групи + тижневий перегляд
-- **Storage** — завантаження лекційних матеріалів у R2 + коментарі (з тредами)
+- **Storage** — завантаження лекційних матеріалів у R2 (PDF/DOCX як є, будь-яке зображення → серверна конверсія у `.webp` перед збереженням) + коментарі з тредами
 - **Messenger** — груповий чат через SignalR (`/hubs/chat`), позначки прочитаного
 - **Notifications** — push через SignalR (`/hubs/notifications`)
-- **Digest** — AI-резюме активності групи
+- **Digest** — AI-резюме активності групи за 24 години + кешований ендпоінт `/api/digest/latest` для інлайн-блоку на дашборді (без повторного виклику LLM)
 - **GraphQL** — read-only ендпоінт `/graphql` для важких екранів (dashboard, матеріал з деревом коментарів)
 
 ## Структура
@@ -67,8 +68,10 @@ Tests/         xUnit-тести (окремий csproj)
 
 ## Безпека
 
-- Cookie `AkademVault.Auth` — HttpOnly, SameSite=Lax; на unauth повертається `401 JSON` (без редіректу — для SPA).
-- Antiforgery: HttpOnly-cookie + заголовок `X-XSRF-TOKEN`. `JsonAntiforgeryFilter` застосовується до MVC; для `/graphql` CSRF-перевірка дублюється у middleware.
+- Cookie `AkademVault.Auth` — HttpOnly, persistent (`IsPersistent=true`), `ExpireTimeSpan = 30d` + `SlidingExpiration`. У prod `SameSite=None; Secure` (для cross-origin SPA на Cloudflare Pages), у dev `SameSite=Lax`.
+- На unauth повертається `401 JSON` без 302-редіректу — SPA сама вирішує куди вести користувача.
+- Захищені роути front-end передають оригінальний URL через `?returnUrl=` — після логіну користувач повертається на запитувану сторінку (зокрема invite-лінки переживають login-flow).
+- **Antiforgery: тимчасово вимкнено** (`TODO(xsrf-reenable)`). Причина — SPA на окремому origin не може прочитати cookie через `document.cookie`, тож не вміє повернути токен у заголовку. Поточні CSRF-захисти: CORS allowlist + `SameSite=None+Secure` cookies + JSON-only endpoints (POST application/json завжди тригерить CORS preflight). До переімплементації — токен має повертатись у заголовку відповіді (`X-XSRF-Token`) з HTTP-interceptor на фронті.
 - Глобальний exception handler віддає структуроване JSON-тіло 500.
 
 ## Тести

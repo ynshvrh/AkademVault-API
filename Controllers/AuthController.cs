@@ -97,9 +97,21 @@ public class AuthController : ControllerBase
         var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
 
         var principal = new ClaimsPrincipal(claimsIdentity);
+
+        // IsPersistent=true makes the cookie outlive browser sessions (paired with the 30-day
+        // ExpireTimeSpan + sliding expiration configured in Program.cs). Without this, every
+        // browser restart logs the user out — the original symptom users were hitting.
+        var authProps = new AuthenticationProperties
+        {
+            IsPersistent = true,
+            ExpiresUtc = DateTimeOffset.UtcNow.AddDays(30),
+            AllowRefresh = true
+        };
+
         await HttpContext.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            principal);
+            principal,
+            authProps);
 
         // TODO(xsrf-reenable): IssueAntiforgeryCookies(principal);
 

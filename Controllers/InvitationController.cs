@@ -201,6 +201,29 @@ public class InvitationController : ControllerBase
     }
 
 
+    // Owner-only: hard-deletes every revoked OR expired link of the Owner's group.
+    // Active (non-revoked, not yet expired) links are preserved so existing shares keep working.
+    [HttpDelete("links/cleanup")]
+    public async Task<IActionResult> CleanupLinks()
+    {
+        var ownerId = Guid.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
+        var group = await _context.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.OwnerId == ownerId);
+        if (group == null)
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = "Тільки староста може чистити лінки." });
+
+        var now = DateTime.UtcNow;
+        var dead = await _context.GroupInviteLinks
+            .Where(l => l.GroupId == group.Id && (l.RevokedAt != null || l.ExpiresAt < now))
+            .ToListAsync();
+
+        if (dead.Count == 0) return Ok(new { removed = 0 });
+
+        _context.GroupInviteLinks.RemoveRange(dead);
+        await _context.SaveChangesAsync();
+        return Ok(new { removed = dead.Count });
+    }
+
+
     // Anonymous preview of an invite link so guests can see the group before signing in.
     [HttpGet("links/by-token/{token}/preview")]
     [AllowAnonymous]

@@ -145,6 +145,13 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Cookie.SecurePolicy = cookieSecure;
         options.Cookie.SameSite = cookieSameSite;
 
+        // Persist the auth cookie for 30 days and refresh it on each activity (sliding window).
+        // Combined with `IsPersistent = true` in AuthController.Login, this means the cookie
+        // survives browser restarts — without these, it's a session cookie that dies on tab close
+        // and the user has to log in again every visit.
+        options.ExpireTimeSpan = TimeSpan.FromDays(30);
+        options.SlidingExpiration = true;
+
         // SPA expects JSON 401 on unauth instead of a 302 redirect.
         options.Events.OnRedirectToLogin = context =>
         {

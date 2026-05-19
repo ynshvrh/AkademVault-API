@@ -12,4 +12,3 @@ Tests/
 README.md
 .dockerignore
 Dockerfile
-fly.toml

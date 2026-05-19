@@ -3,7 +3,7 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AkademVault_API.Models;
 
-// Tenant unit of the app; OwnerId designates the староста with elevated permissions.
+// Tenant unit of the app; OwnerId designates the group leader (starosta) with elevated permissions.
 public class Group
 {
     public Guid Id { get; set; }

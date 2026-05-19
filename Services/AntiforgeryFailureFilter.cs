@@ -1,3 +1,11 @@
+// TODO(xsrf-reenable): This filter is currently disabled (not registered in Program.cs).
+// XSRF was turned off because the cross-origin SPA (web on Cloudflare Pages, API on Render)
+// cannot read a cookie set by this API origin via document.cookie, so Angular has no way to
+// echo the token back as the X-XSRF-TOKEN header. Restore this filter once the SPA can obtain
+// the token (e.g., via a response header populated in AuthController + an Angular interceptor).
+// See related TODO markers in Program.cs and Controllers/AuthController.cs.
+
+/*
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -45,3 +53,4 @@ public class JsonAntiforgeryFilter : IAsyncAuthorizationFilter
         }
     }
 }
+*/

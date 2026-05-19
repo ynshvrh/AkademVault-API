@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
-using Microsoft.AspNetCore.Antiforgery;
+// TODO(xsrf-reenable): restore when antiforgery is wired up for cross-origin SPA — see notes near AddAntiforgery below.
+// using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Filters;
+// TODO(xsrf-reenable): JsonAntiforgeryFilter consumer — restore when XSRF is re-enabled.
+// using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.EntityFrameworkCore;
 using AkademVault_API.Data;
 using AkademVault_API.Hubs;
@@ -129,8 +131,8 @@ builder.Services.AddCors(options =>
 });
 
 
-// Cross-origin (web on *.pages.dev, API on *.fly.dev) needs SameSite=None + Secure.
-// Dev stays on Lax/SameAsRequest so cookies work over plain http://localhost.
+// Cross-origin deployments (web and API on different domains) require SameSite=None + Secure.
+// Development stays on Lax/SameAsRequest so cookies work over plain http://localhost.
 var crossSiteCookies = !builder.Environment.IsDevelopment();
 var cookieSameSite = crossSiteCookies ? SameSiteMode.None : SameSiteMode.Lax;
 var cookieSecure = crossSiteCookies ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
@@ -152,6 +154,15 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
     });
 
 
+// TODO(xsrf-reenable): Antiforgery is disabled because the SPA on a separate origin
+// (web on Cloudflare Pages, API on Render) cannot read a cookie set by this API origin via
+// document.cookie, so Angular has no way to echo the token back as X-XSRF-TOKEN.
+// Current CSRF defenses: CORS allowlist + SameSite=None+Secure cookies + JSON-only controllers
+// (POST application/json always triggers a CORS preflight against the origin allowlist).
+// To re-enable: return the token in a response header (e.g., X-XSRF-Token) from /auth/me and
+// /auth/login, add an Angular HttpInterceptor that reads it on every response and includes
+// it on subsequent requests. Also restore JsonAntiforgeryFilter registration below.
+/*
 builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-XSRF-TOKEN";
@@ -160,11 +171,9 @@ builder.Services.AddAntiforgery(options =>
     options.Cookie.SecurePolicy = cookieSecure;
     options.Cookie.SameSite = cookieSameSite;
 });
+*/
 
-builder.Services.AddControllersWithViews(options =>
-{
-    options.Filters.Add<JsonAntiforgeryFilter>();
-});
+builder.Services.AddControllersWithViews(/* TODO(xsrf-reenable): options => options.Filters.Add<JsonAntiforgeryFilter>() */);
 
 builder.Services.AddSignalR();
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
@@ -230,44 +239,6 @@ app.UseCors("AngularPolicy");
 
 app.UseAuthentication();
 app.UseAuthorization();
-
-// CSRF guard for /graphql — MVC's JsonAntiforgeryFilter doesn't apply to GraphQL's non-MVC endpoint,
-// so we replicate the same validation (X-XSRF-TOKEN header vs HttpOnly antiforgery cookie) here.
-app.Use(async (context, next) =>
-{
-    if (context.Request.Path.StartsWithSegments("/graphql"))
-    {
-        var method = context.Request.Method;
-        var isSafe = HttpMethods.IsGet(method)
-            || HttpMethods.IsHead(method)
-            || HttpMethods.IsOptions(method)
-            || HttpMethods.IsTrace(method);
-
-        if (!isSafe)
-        {
-            try
-            {
-                await context.RequestServices
-                    .GetRequiredService<IAntiforgery>()
-                    .ValidateRequestAsync(context);
-            }
-            catch (AntiforgeryValidationException)
-            {
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                context.Response.ContentType = "application/json";
-                await context.Response.WriteAsJsonAsync(new
-                {
-                    message = "CSRF-токен відсутній або недійсний. Оновіть сторінку.",
-                    code = "antiforgery_failed"
-                });
-                return;
-            }
-        }
-    }
-
-    await next();
-});
-
 
 app.MapControllers();
 app.MapHub<ChatHub>("/hubs/chat");

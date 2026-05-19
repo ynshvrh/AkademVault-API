@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+// Antiforgery namespace is still needed for the [IgnoreAntiforgeryToken] attributes below,
+// which become no-ops while XSRF is disabled but remain as documentation of intent.
+// TODO(xsrf-reenable): see notes in Program.cs near AddAntiforgery.
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -16,14 +19,19 @@ using AkademVault_API.Models;
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly IAntiforgery _antiforgery;
+    // TODO(xsrf-reenable): restore alongside AddAntiforgery in Program.cs.
+    // private readonly IAntiforgery _antiforgery;
 
-    public AuthController(AppDbContext context, IAntiforgery antiforgery)
+    public AuthController(AppDbContext context /* TODO(xsrf-reenable): , IAntiforgery antiforgery */)
     {
         _context = context;
-        _antiforgery = antiforgery;
+        // _antiforgery = antiforgery;
     }
 
+    // TODO(xsrf-reenable): replace cookie-based issuance with a response-header strategy
+    // (e.g., set X-XSRF-Token header here and have an Angular HttpInterceptor capture it).
+    // Cookie-based token cannot be read by the SPA when web and API live on different origins.
+    /*
     // Rotates the readable XSRF-TOKEN cookie so the SPA can echo it back as the X-XSRF-TOKEN header.
     private void IssueAntiforgeryCookies(ClaimsPrincipal principal)
     {
@@ -36,6 +44,7 @@ public class AuthController : ControllerBase
             Secure = Request.IsHttps
         });
     }
+    */
 
     // Creates a new user with a BCrypt-hashed password; rejects duplicate emails.
     [IgnoreAntiforgeryToken]
@@ -92,7 +101,7 @@ public class AuthController : ControllerBase
             CookieAuthenticationDefaults.AuthenticationScheme,
             principal);
 
-        IssueAntiforgeryCookies(principal);
+        // TODO(xsrf-reenable): IssueAntiforgeryCookies(principal);
 
         return Ok(new { username = user.Username, email = user.Email });
     }
@@ -103,7 +112,7 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> Logout()
     {
         await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        IssueAntiforgeryCookies(new ClaimsPrincipal(new ClaimsIdentity()));
+        // TODO(xsrf-reenable): IssueAntiforgeryCookies(new ClaimsPrincipal(new ClaimsIdentity()));
         return Ok(new { message = "Вихід успішний" });
     }
 

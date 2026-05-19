@@ -1,0 +1,15 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.vscode/
+**/.git/
+**/.gitignore
+**/.env
+**/.env.*
+**/*.user
+Tests/
+README.md
+.dockerignore
+Dockerfile
+fly.toml

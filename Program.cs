@@ -129,13 +129,19 @@ builder.Services.AddCors(options =>
 });
 
 
+// Cross-origin (web on *.pages.dev, API on *.fly.dev) needs SameSite=None + Secure.
+// Dev stays on Lax/SameAsRequest so cookies work over plain http://localhost.
+var crossSiteCookies = !builder.Environment.IsDevelopment();
+var cookieSameSite = crossSiteCookies ? SameSiteMode.None : SameSiteMode.Lax;
+var cookieSecure = crossSiteCookies ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
+
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.Cookie.Name = "AkademVault.Auth";
         options.Cookie.HttpOnly = true;
-        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = cookieSecure;
+        options.Cookie.SameSite = cookieSameSite;
 
         // SPA expects JSON 401 on unauth instead of a 302 redirect.
         options.Events.OnRedirectToLogin = context =>
@@ -151,8 +157,8 @@ builder.Services.AddAntiforgery(options =>
     options.HeaderName = "X-XSRF-TOKEN";
     options.Cookie.Name = "AkademVault.AntiForgery";
     options.Cookie.HttpOnly = true;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = cookieSecure;
+    options.Cookie.SameSite = cookieSameSite;
 });
 
 builder.Services.AddControllersWithViews(options =>
@@ -178,6 +184,15 @@ builder.Services
     .AddQueryType<AkademVault_API.GraphQL.Query>();
 
 var app = builder.Build();
+
+
+// Apply pending EF migrations on startup. Idempotent — safe to run on every cold start.
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.MigrateAsync();
+    Console.WriteLine("✅ EF міграції застосовані");
+}
 
 
 if (app.Environment.IsDevelopment())

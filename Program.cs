@@ -94,13 +94,25 @@ var openRouterModel        = Environment.GetEnvironmentVariable("OPENROUTER_MODE
 var openRouterParserModels = ParseModelPool("OPENROUTER_MODEL_PARSER", openRouterModel);
 var openRouterDigestModels = ParseModelPool("OPENROUTER_MODEL_DIGEST", openRouterModel);
 
+// The schedule parser can instead run on Google Gemini directly (AI Studio), whose
+// separate free tier includes vision — useful when the OpenRouter balance can't cover
+// the cost of inlining an image. Enabled only when GEMINI_API_KEY is set; otherwise the
+// OpenRouter multimodal pool stays in charge, so nothing breaks without it.
+var geminiKey   = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+var geminiModel = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-2.0-flash";
+var geminiUrl   = Environment.GetEnvironmentVariable("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com";
+var useGeminiParser = !string.IsNullOrWhiteSpace(geminiKey);
+
 if (string.IsNullOrEmpty(openRouterKey))
 {
     Console.WriteLine("ERROR: OPENROUTER_API_KEY is not set in the environment.");
 }
 else
 {
-    Console.WriteLine($"OpenRouter pools — schedule parser: [{string.Join(", ", openRouterParserModels)}], digest: [{string.Join(", ", openRouterDigestModels)}]");
+    var parserDesc = useGeminiParser
+        ? $"Gemini direct ({geminiModel})"
+        : $"OpenRouter [{string.Join(", ", openRouterParserModels)}]";
+    Console.WriteLine($"AI — schedule parser: {parserDesc}; digest: OpenRouter [{string.Join(", ", openRouterDigestModels)}]");
 }
 
 static string[] ParseModelPool(string envVar, string fallback)
@@ -113,13 +125,18 @@ static string[] ParseModelPool(string envVar, string fallback)
 
 builder.Services.AddHttpClient(nameof(OpenRouterClient))
     .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
+builder.Services.AddHttpClient(nameof(GeminiClient))
+    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
 
-// Two independent client instances, one per workload, each with its own model pool.
-// OpenRouterClient implements both interfaces, but each instance is only ever resolved
-// for the single interface it's registered against here.
+// Multimodal (schedule parser): Gemini direct when GEMINI_API_KEY is set, else the
+// OpenRouter vision pool. Digest is always the OpenRouter text pool. OpenRouterClient
+// implements both interfaces, but each instance is only resolved for the one it's
+// registered against here.
 builder.Services.AddTransient<IMultimodalAIClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
+    if (useGeminiParser)
+        return new GeminiClient(factory.CreateClient(nameof(GeminiClient)), geminiKey!, geminiModel, geminiUrl);
     return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterParserModels, openRouterUrl);
 });
 builder.Services.AddTransient<IDigestAIClient>(sp =>

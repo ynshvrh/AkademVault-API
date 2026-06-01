@@ -98,9 +98,9 @@ var openRouterDigestModels = ParseModelPool("OPENROUTER_MODEL_DIGEST", openRoute
 // separate free tier includes vision — useful when the OpenRouter balance can't cover
 // the cost of inlining an image. Enabled only when GEMINI_API_KEY is set; otherwise the
 // OpenRouter multimodal pool stays in charge, so nothing breaks without it.
-var geminiKey   = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
-var geminiModel = Environment.GetEnvironmentVariable("GEMINI_MODEL") ?? "gemini-2.0-flash";
-var geminiUrl   = Environment.GetEnvironmentVariable("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com";
+var geminiKey    = Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+var geminiModels = ParseModelPool("GEMINI_MODEL", "gemini-2.0-flash");
+var geminiUrl    = Environment.GetEnvironmentVariable("GEMINI_BASE_URL") ?? "https://generativelanguage.googleapis.com";
 var useGeminiParser = !string.IsNullOrWhiteSpace(geminiKey);
 
 if (string.IsNullOrEmpty(openRouterKey))
@@ -110,7 +110,7 @@ if (string.IsNullOrEmpty(openRouterKey))
 else
 {
     var parserDesc = useGeminiParser
-        ? $"Gemini direct ({geminiModel})"
+        ? $"Gemini direct [{string.Join(", ", geminiModels)}]"
         : $"OpenRouter [{string.Join(", ", openRouterParserModels)}]";
     Console.WriteLine($"AI — schedule parser: {parserDesc}; digest: OpenRouter [{string.Join(", ", openRouterDigestModels)}]");
 }
@@ -136,7 +136,7 @@ builder.Services.AddTransient<IMultimodalAIClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
     if (useGeminiParser)
-        return new GeminiClient(factory.CreateClient(nameof(GeminiClient)), geminiKey!, geminiModel, geminiUrl);
+        return new GeminiClient(factory.CreateClient(nameof(GeminiClient)), geminiKey!, geminiModels, geminiUrl);
     return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterParserModels, openRouterUrl);
 });
 builder.Services.AddTransient<IDigestAIClient>(sp =>

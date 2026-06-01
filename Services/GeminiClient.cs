@@ -14,21 +14,33 @@ public class GeminiClient : IMultimodalAIClient
 {
     private readonly HttpClient _http;
     private readonly string _apiKey;
-    private readonly string _model;
+    private readonly IReadOnlyList<string> _models;
 
-    public GeminiClient(HttpClient http, string apiKey, string model, string baseUrl)
+    // Pool constructor: models are tried in order, falling through to the next on any
+    // failure (the free tier's 429 rate-limit is the common one). Blank entries are
+    // ignored; an empty list throws.
+    public GeminiClient(HttpClient http, string apiKey, IEnumerable<string> models, string baseUrl)
     {
+        _models = models.Where(m => !string.IsNullOrWhiteSpace(m)).ToList();
+        if (_models.Count == 0)
+            throw new ArgumentException("GeminiClient needs at least one model", nameof(models));
+
         _http = http;
         _apiKey = apiKey;
-        _model = model;
-
         _http.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
         _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+    }
+
+    // Single-model convenience overload.
+    public GeminiClient(HttpClient http, string apiKey, string model, string baseUrl)
+        : this(http, apiKey, new[] { model }, baseUrl)
+    {
     }
 
     public async Task<string> CallAsync(string systemPrompt, string userPrompt, IEnumerable<MultimodalAttachment> attachments, CancellationToken ct = default)
     {
         // One user "content" with the text part first, then any inline image/PDF parts.
+        // Built once and reused across model attempts — only the URL's model changes.
         var parts = new List<object> { new { text = userPrompt } };
 
         foreach (var att in attachments)
@@ -58,29 +70,53 @@ public class GeminiClient : IMultimodalAIClient
             generationConfig = new { maxOutputTokens = 2048 },
         };
 
-        // Key goes in the query string per the AI Studio REST convention.
-        var url = $"v1beta/models/{_model}:generateContent?key={_apiKey}";
+        string lastError = "no models configured";
 
-        var response = await _http.PostAsJsonAsync(url, payload, ct);
-        var raw = await response.Content.ReadAsStringAsync(ct);
-
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException($"Gemini returned {(int)response.StatusCode}: {raw}");
-
-        var parsed = JsonSerializer.Deserialize<GeminiResponse>(raw, new JsonSerializerOptions
+        for (var i = 0; i < _models.Count; i++)
         {
-            PropertyNameCaseInsensitive = true
-        });
+            var model = _models[i];
+            // Key goes in the query string per the AI Studio REST convention.
+            var url = $"v1beta/models/{model}:generateContent?key={_apiKey}";
 
-        var text = parsed?.Candidates?
-            .FirstOrDefault()?.Content?.Parts?
-            .Select(p => p.Text)
-            .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            HttpResponseMessage response;
+            try
+            {
+                response = await _http.PostAsJsonAsync(url, payload, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                lastError = $"{model}: transport error: {ex.Message}";
+                continue;
+            }
 
-        if (string.IsNullOrWhiteSpace(text))
-            throw new InvalidOperationException($"Gemini returned an empty response: {raw}");
+            var raw = await response.Content.ReadAsStringAsync(ct);
 
-        return text.Trim();
+            if (!response.IsSuccessStatusCode)
+            {
+                lastError = $"{model}: Gemini returned {(int)response.StatusCode}: {raw}";
+                continue;
+            }
+
+            var parsed = JsonSerializer.Deserialize<GeminiResponse>(raw, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            var text = parsed?.Candidates?
+                .FirstOrDefault()?.Content?.Parts?
+                .Select(p => p.Text)
+                .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                lastError = $"{model}: Gemini returned an empty response: {raw}";
+                continue;
+            }
+
+            return text.Trim();
+        }
+
+        throw new InvalidOperationException($"All Gemini models failed. Last error — {lastError}");
     }
 
     private class GeminiResponse

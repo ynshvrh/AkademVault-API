@@ -83,15 +83,16 @@ builder.Services.AddSingleton<IShortCodeGenerator, ShortCodeGenerator>();
 var openRouterKey   = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
 var openRouterUrl   = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1";
 
-// One shared default, with a per-workload override so the schedule parser (vision,
-// accuracy-critical) and the activity digest (text, non-critical) can run on
-// different models — e.g. a free vision model for the parser and a free text model
-// for the digest, with the option to switch the parser to a paid model if accuracy
-// suffers. Both fall back to OPENROUTER_MODEL, then to the historical default, so
-// existing single-model deploys keep working unchanged.
-var openRouterModel       = Environment.GetEnvironmentVariable("OPENROUTER_MODEL") ?? "anthropic/claude-haiku-4-5";
-var openRouterModelParser = Environment.GetEnvironmentVariable("OPENROUTER_MODEL_PARSER") ?? openRouterModel;
-var openRouterModelDigest = Environment.GetEnvironmentVariable("OPENROUTER_MODEL_DIGEST") ?? openRouterModel;
+// Per-workload model pools, tried in order with fall-through on failure. The schedule
+// parser (vision, accuracy-critical) and the activity digest (text, non-critical) run
+// independent pools, each a comma-separated list, e.g.
+//   OPENROUTER_MODEL_PARSER=moonshotai/kimi-k2.6:free,google/gemma-4-31b-it:free,anthropic/claude-haiku-4-5
+// Only vision-capable models belong in the parser pool. A paid model can sit last as a
+// guaranteed backstop. Each pool falls back to the single OPENROUTER_MODEL (then the
+// historical default), so existing single-model deploys keep working unchanged.
+var openRouterModel        = Environment.GetEnvironmentVariable("OPENROUTER_MODEL") ?? "anthropic/claude-haiku-4-5";
+var openRouterParserModels = ParseModelPool("OPENROUTER_MODEL_PARSER", openRouterModel);
+var openRouterDigestModels = ParseModelPool("OPENROUTER_MODEL_DIGEST", openRouterModel);
 
 if (string.IsNullOrEmpty(openRouterKey))
 {
@@ -99,24 +100,32 @@ if (string.IsNullOrEmpty(openRouterKey))
 }
 else
 {
-    Console.WriteLine($"OpenRouter models — schedule parser: {openRouterModelParser}, digest: {openRouterModelDigest}");
+    Console.WriteLine($"OpenRouter pools — schedule parser: [{string.Join(", ", openRouterParserModels)}], digest: [{string.Join(", ", openRouterDigestModels)}]");
+}
+
+static string[] ParseModelPool(string envVar, string fallback)
+{
+    var raw = Environment.GetEnvironmentVariable(envVar);
+    var pool = (raw ?? string.Empty)
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    return pool.Length > 0 ? pool : new[] { fallback };
 }
 
 builder.Services.AddHttpClient(nameof(OpenRouterClient))
     .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
 
-// Two independent client instances, one per workload, each pinned to its own model.
+// Two independent client instances, one per workload, each with its own model pool.
 // OpenRouterClient implements both interfaces, but each instance is only ever resolved
 // for the single interface it's registered against here.
 builder.Services.AddTransient<IMultimodalAIClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModelParser, openRouterUrl);
+    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterParserModels, openRouterUrl);
 });
 builder.Services.AddTransient<IDigestAIClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModelDigest, openRouterUrl);
+    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterDigestModels, openRouterUrl);
 });
 builder.Services.AddTransient<IScheduleParser, ScheduleParser>();
 

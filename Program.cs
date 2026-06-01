@@ -81,29 +81,43 @@ builder.Services.AddSingleton<IShortCodeGenerator, ShortCodeGenerator>();
 
 
 var openRouterKey   = Environment.GetEnvironmentVariable("OPENROUTER_API_KEY");
-var openRouterModel = Environment.GetEnvironmentVariable("OPENROUTER_MODEL") ?? "anthropic/claude-haiku-4-5";
 var openRouterUrl   = Environment.GetEnvironmentVariable("OPENROUTER_BASE_URL") ?? "https://openrouter.ai/api/v1";
+
+// One shared default, with a per-workload override so the schedule parser (vision,
+// accuracy-critical) and the activity digest (text, non-critical) can run on
+// different models — e.g. a free vision model for the parser and a free text model
+// for the digest, with the option to switch the parser to a paid model if accuracy
+// suffers. Both fall back to OPENROUTER_MODEL, then to the historical default, so
+// existing single-model deploys keep working unchanged.
+var openRouterModel       = Environment.GetEnvironmentVariable("OPENROUTER_MODEL") ?? "anthropic/claude-haiku-4-5";
+var openRouterModelParser = Environment.GetEnvironmentVariable("OPENROUTER_MODEL_PARSER") ?? openRouterModel;
+var openRouterModelDigest = Environment.GetEnvironmentVariable("OPENROUTER_MODEL_DIGEST") ?? openRouterModel;
 
 if (string.IsNullOrEmpty(openRouterKey))
 {
-    Console.WriteLine("❌ ПОМИЛКА: Не вдалося прочитати OPENROUTER_API_KEY з .env!");
+    Console.WriteLine("ERROR: OPENROUTER_API_KEY is not set in the environment.");
 }
 else
 {
-    Console.WriteLine($"✅ OpenRouter модель: {openRouterModel}");
+    Console.WriteLine($"OpenRouter models — schedule parser: {openRouterModelParser}, digest: {openRouterModelDigest}");
 }
 
 builder.Services.AddHttpClient(nameof(OpenRouterClient))
     .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(60));
 
-builder.Services.AddTransient<OpenRouterClient>(sp =>
+// Two independent client instances, one per workload, each pinned to its own model.
+// OpenRouterClient implements both interfaces, but each instance is only ever resolved
+// for the single interface it's registered against here.
+builder.Services.AddTransient<IMultimodalAIClient>(sp =>
 {
     var factory = sp.GetRequiredService<IHttpClientFactory>();
-    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModel, openRouterUrl);
+    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModelParser, openRouterUrl);
 });
-
-builder.Services.AddTransient<IDigestAIClient>(sp => sp.GetRequiredService<OpenRouterClient>());
-builder.Services.AddTransient<IMultimodalAIClient>(sp => sp.GetRequiredService<OpenRouterClient>());
+builder.Services.AddTransient<IDigestAIClient>(sp =>
+{
+    var factory = sp.GetRequiredService<IHttpClientFactory>();
+    return new OpenRouterClient(factory.CreateClient(nameof(OpenRouterClient)), openRouterKey ?? string.Empty, openRouterModelDigest, openRouterUrl);
+});
 builder.Services.AddTransient<IScheduleParser, ScheduleParser>();
 
 

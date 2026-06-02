@@ -62,7 +62,8 @@ Tests/         xUnit-тести (окремий csproj)
 
 - `DB_*` — підключення до PostgreSQL (Neon, `SSL Mode=require`)
 - `R2_*` — Cloudflare R2 (account id, ключі, бакет, endpoint)
-- `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL`
+- `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` — доступ до OpenRouter
+- `OPENROUTER_MODEL_PARSER`, `OPENROUTER_MODEL_DIGEST` — пули моделей (кома-розділені) для парсера розкладу та дайджесту окремо; кожен пробується по черзі з перемиканням при rate-limit / помилці / порожній відповіді, інакше — фолбек на `OPENROUTER_MODEL`
 - `APP_BASE_URL` — публічний URL цього API
 - `CORS_ALLOWED_ORIGINS` — кома-розділений список (Angular SPA, Capacitor iOS/Android)
 

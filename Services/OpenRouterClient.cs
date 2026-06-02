@@ -85,10 +85,16 @@ public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
         }, ct);
     }
 
+    // Upper bound on how long we'll honour an upstream "retry-after" before giving up on a
+    // model and moving to the next. Free models often report ~15-16s; we wait once, but never
+    // longer than this so a request can't hang for minutes.
+    private const double MaxRetryWaitSeconds = 20;
+
     // Tries each model in the pool until one returns content. The payload is rebuilt per
-    // model (only the "model" field changes). Falls through on non-2xx or empty reply;
-    // throws with the last error only when every model in the pool has failed, preserving
-    // the original "this method throws on failure" contract for callers.
+    // model (only the "model" field changes). On a 429 that carries a short retry-after, we
+    // wait once and retry the SAME model before falling through (free models are often only
+    // briefly rate-limited). Falls through on other non-2xx / empty reply. Throws with the
+    // last error only when every model has failed, preserving the throw-on-failure contract.
     private async Task<string> PostAndExtractAsync(Func<string, object> buildPayload, CancellationToken ct)
     {
         string lastError = "no models configured";
@@ -96,41 +102,71 @@ public class OpenRouterClient : IDigestAIClient, IMultimodalAIClient
         for (var i = 0; i < _models.Count; i++)
         {
             var model = _models[i];
-            HttpResponseMessage response;
-            try
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                response = await _http.PostAsJsonAsync("chat/completions", buildPayload(model), ct);
+                HttpResponseMessage response;
+                try
+                {
+                    response = await _http.PostAsJsonAsync("chat/completions", buildPayload(model), ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    lastError = $"{model}: transport error: {ex.Message}";
+                    break; // transport failure — move to next model
+                }
+
+                var raw = await response.Content.ReadAsStringAsync(ct);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    lastError = $"{model}: OpenRouter returned {(int)response.StatusCode}: {raw}";
+                    // On the first 429 with a short retry-after, wait once and retry this model.
+                    if ((int)response.StatusCode == 429 && attempt == 0
+                        && TryGetRetryAfter(raw, out var delay) && delay <= MaxRetryWaitSeconds)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(delay), ct);
+                        continue;
+                    }
+                    break; // other error, or no usable retry-after — move to next model
+                }
+
+                var parsed = JsonSerializer.Deserialize<ChatResponse>(raw, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    lastError = $"{model}: OpenRouter returned an empty response: {raw}";
+                    break; // empty — move to next model
+                }
+
+                return content.Trim();
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                lastError = $"{model}: transport error: {ex.Message}";
-                continue;
-            }
-
-            var raw = await response.Content.ReadAsStringAsync(ct);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                lastError = $"{model}: OpenRouter returned {(int)response.StatusCode}: {raw}";
-                continue;
-            }
-
-            var parsed = JsonSerializer.Deserialize<ChatResponse>(raw, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            var content = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                lastError = $"{model}: OpenRouter returned an empty response: {raw}";
-                continue;
-            }
-
-            return content.Trim();
         }
 
         throw new InvalidOperationException($"All OpenRouter models failed. Last error — {lastError}");
+    }
+
+    // Pulls retry_after_seconds out of OpenRouter's 429 error body, if present.
+    private static bool TryGetRetryAfter(string raw, out double seconds)
+    {
+        seconds = 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(raw);
+            if (doc.RootElement.TryGetProperty("error", out var err)
+                && err.TryGetProperty("metadata", out var meta)
+                && meta.TryGetProperty("retry_after_seconds", out var ra)
+                && ra.TryGetDouble(out var v) && v > 0)
+            {
+                seconds = v;
+                return true;
+            }
+        }
+        catch (JsonException) { /* not JSON or unexpected shape — no retry hint */ }
+        return false;
     }
 
 

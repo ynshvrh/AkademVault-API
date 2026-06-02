@@ -151,7 +151,22 @@ public class DigestController : ControllerBase
         foreach (var m in messages)
             prompt.AppendLine($"[{m.SentAt:HH:mm}] {m.Sender}: {m.Content}");
 
-        var rawSummary = await _ai.SummarizeAsync(SystemPrompt, prompt.ToString(), ct);
+        // The AI call can fail when every model in the pool is rate-limited (429) or out of
+        // credit. Surface a friendly 503 instead of leaking a raw 500 — the digest is an
+        // auxiliary feature, a temporary AI outage must not look like a server crash.
+        string rawSummary;
+        try
+        {
+            rawSummary = await _ai.SummarizeAsync(SystemPrompt, prompt.ToString(), ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                message = "AI-сервіс тимчасово недоступний. Спробуйте за хвилину.",
+                detail = ex.Message
+            });
+        }
         var summary = SanitizeSummary(rawSummary);
 
         var generatedAt = DateTime.UtcNow;
